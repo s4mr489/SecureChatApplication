@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
+using SecureChatServer.Data.Repositories;
 using SecureChatServer.Models;
-using System.Collections.Concurrent;
 
 namespace SecureChatServer.Hubs;
 
@@ -12,14 +12,21 @@ namespace SecureChatServer.Hubs;
 /// - The server NEVER sees plaintext messages
 /// - The server CANNOT decrypt messages (no access to private keys)
 /// - All cryptographic operations happen client-side
+/// 
+/// DATABASE:
+/// - Users and encrypted messages are persisted to SQL Server
+/// - Message history can be retrieved (still encrypted)
 /// </summary>
 public sealed class ChatHub : Hub
 {
-    // Thread-safe dictionary mapping username to connection info
-    private static readonly ConcurrentDictionary<string, ConnectedUser> ConnectedUsers = new();
-    
-    // Reverse lookup: ConnectionId -> Username
-    private static readonly ConcurrentDictionary<string, string> ConnectionToUsername = new();
+    private readonly IUserRepository _userRepository;
+    private readonly IMessageRepository _messageRepository;
+
+    public ChatHub(IUserRepository userRepository, IMessageRepository messageRepository)
+    {
+        _userRepository = userRepository;
+        _messageRepository = messageRepository;
+    }
 
     /// <summary>
     /// Called when a user joins the chat with their username.
@@ -34,38 +41,48 @@ public sealed class ChatHub : Hub
             return;
         }
 
-        // Check if username is already taken
-        if (ConnectedUsers.ContainsKey(username))
+        // Check if username is already taken by an online user
+        if (await _userRepository.IsUsernameTakenAsync(username))
         {
             await Clients.Caller.SendAsync("Error", "Username is already taken.");
             return;
         }
 
-        var user = new ConnectedUser
+        try
         {
-            ConnectionId = Context.ConnectionId,
-            Username = username,
-            ConnectedAt = DateTime.UtcNow
-        };
-
-        // Register the user
-        if (ConnectedUsers.TryAdd(username, user))
-        {
-            ConnectionToUsername.TryAdd(Context.ConnectionId, username);
+            // Create or update user in database
+            var user = await _userRepository.CreateOrUpdateOnJoinAsync(username, Context.ConnectionId);
 
             // Notify all clients about the new user
             await Clients.All.SendAsync("UserJoined", username);
 
-            // Send current user list to the new user
-            var userList = ConnectedUsers.Keys.ToList();
+            // Send current online user list to the new user
+            var userList = await _userRepository.GetOnlineUsernamesAsync();
             await Clients.Caller.SendAsync("UserList", userList);
 
             // Confirm successful join
             await Clients.Caller.SendAsync("JoinConfirmed", username);
+
+            // Deliver any undelivered messages (offline message support)
+            var undeliveredMessages = await _messageRepository.GetUndeliveredMessagesAsync(user.Id);
+            foreach (var msg in undeliveredMessages)
+            {
+                var encryptedMsg = new EncryptedMessage
+                {
+                    MessageId = msg.MessageId,
+                    SenderUsername = msg.Sender.Username,
+                    RecipientUsername = username,
+                    Ciphertext = msg.Ciphertext,
+                    IV = msg.IV,
+                    Timestamp = msg.Timestamp
+                };
+                await Clients.Caller.SendAsync("EncryptedMessageReceived", encryptedMsg);
+                await _messageRepository.MarkAsDeliveredAsync(msg.MessageId);
+            }
         }
-        else
+        catch (Exception ex)
         {
-            await Clients.Caller.SendAsync("Error", "Failed to join chat.");
+            await Clients.Caller.SendAsync("Error", $"Failed to join chat: {ex.Message}");
         }
     }
 
@@ -76,15 +93,17 @@ public sealed class ChatHub : Hub
     /// <param name="keyExchange">The key exchange message containing the public key.</param>
     public async Task InitiateKeyExchange(KeyExchangeMessage keyExchange)
     {
-        // Validate the recipient exists
-        if (!ConnectedUsers.TryGetValue(keyExchange.RecipientUsername, out var recipient))
+        // Get recipient's connection ID from database
+        var connectionId = await _userRepository.GetConnectionIdAsync(keyExchange.RecipientUsername);
+
+        if (connectionId == null)
         {
             await Clients.Caller.SendAsync("Error", $"User '{keyExchange.RecipientUsername}' is not online.");
             return;
         }
 
         // Relay the public key to the recipient (server cannot derive the shared secret)
-        await Clients.Client(recipient.ConnectionId).SendAsync("KeyExchangeReceived", keyExchange);
+        await Clients.Client(connectionId).SendAsync("KeyExchangeReceived", keyExchange);
     }
 
     /// <summary>
@@ -94,15 +113,17 @@ public sealed class ChatHub : Hub
     /// <param name="keyExchange">The key exchange response containing the public key.</param>
     public async Task RespondToKeyExchange(KeyExchangeMessage keyExchange)
     {
-        // Validate the original sender exists
-        if (!ConnectedUsers.TryGetValue(keyExchange.RecipientUsername, out var originalSender))
+        // Get original sender's connection ID from database
+        var connectionId = await _userRepository.GetConnectionIdAsync(keyExchange.RecipientUsername);
+
+        if (connectionId == null)
         {
             await Clients.Caller.SendAsync("Error", $"User '{keyExchange.RecipientUsername}' is not online.");
             return;
         }
 
         // Relay the response public key back to the original sender
-        await Clients.Client(originalSender.ConnectionId).SendAsync("KeyExchangeCompleted", keyExchange);
+        await Clients.Client(connectionId).SendAsync("KeyExchangeCompleted", keyExchange);
     }
 
     /// <summary>
@@ -112,18 +133,47 @@ public sealed class ChatHub : Hub
     /// <param name="message">The encrypted message to relay.</param>
     public async Task SendEncryptedMessage(EncryptedMessage message)
     {
-        // Validate the recipient exists
-        if (!ConnectedUsers.TryGetValue(message.RecipientUsername, out var recipient))
+        try
         {
-            await Clients.Caller.SendAsync("Error", $"User '{message.RecipientUsername}' is not online.");
-            return;
+            // Get sender and recipient from database
+            var sender = await _userRepository.GetByUsernameAsync(message.SenderUsername);
+            var recipient = await _userRepository.GetByUsernameAsync(message.RecipientUsername);
+
+            if (sender == null)
+            {
+                await Clients.Caller.SendAsync("Error", "Sender not found.");
+                return;
+            }
+
+            if (recipient == null)
+            {
+                await Clients.Caller.SendAsync("Error", $"User '{message.RecipientUsername}' not found.");
+                return;
+            }
+
+            // Save encrypted message to database
+            await _messageRepository.SaveMessageAsync(
+                message.MessageId,
+                sender.Id,
+                recipient.Id,
+                message.Ciphertext,
+                message.IV,
+                message.Timestamp);
+
+            // If recipient is online, relay the message immediately
+            if (recipient.IsOnline && recipient.ConnectionId != null)
+            {
+                await Clients.Client(recipient.ConnectionId).SendAsync("EncryptedMessageReceived", message);
+                await _messageRepository.MarkAsDeliveredAsync(message.MessageId);
+            }
+
+            // Send confirmation back to sender
+            await Clients.Caller.SendAsync("MessageDelivered", message.MessageId);
         }
-
-        // Relay the encrypted message (server cannot read the content)
-        await Clients.Client(recipient.ConnectionId).SendAsync("EncryptedMessageReceived", message);
-
-        // Also send confirmation back to sender
-        await Clients.Caller.SendAsync("MessageDelivered", message.MessageId);
+        catch (Exception ex)
+        {
+            await Clients.Caller.SendAsync("Error", $"Failed to send message: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -135,9 +185,10 @@ public sealed class ChatHub : Hub
     {
         foreach (var message in messages)
         {
-            if (ConnectedUsers.TryGetValue(message.RecipientUsername, out var recipient))
+            var connectionId = await _userRepository.GetConnectionIdAsync(message.RecipientUsername);
+            if (connectionId != null)
             {
-                await Clients.Client(recipient.ConnectionId).SendAsync("EncryptedMessageReceived", message);
+                await Clients.Client(connectionId).SendAsync("EncryptedMessageReceived", message);
             }
         }
     }
@@ -147,11 +198,17 @@ public sealed class ChatHub : Hub
     /// </summary>
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        if (ConnectionToUsername.TryRemove(Context.ConnectionId, out var username))
+        // Get username before marking offline
+        var onlineUsers = await _userRepository.GetOnlineUsersAsync();
+        var user = onlineUsers.FirstOrDefault(u => u.ConnectionId == Context.ConnectionId);
+        var username = user?.Username;
+
+        // Mark user as offline in database
+        await _userRepository.SetOfflineAsync(Context.ConnectionId);
+
+        // Notify all remaining clients
+        if (username != null)
         {
-            ConnectedUsers.TryRemove(username, out _);
-            
-            // Notify all remaining clients
             await Clients.All.SendAsync("UserLeft", username);
         }
 
@@ -163,7 +220,7 @@ public sealed class ChatHub : Hub
     /// </summary>
     public async Task GetOnlineUsers()
     {
-        var userList = ConnectedUsers.Keys.ToList();
+        var userList = await _userRepository.GetOnlineUsernamesAsync();
         await Clients.Caller.SendAsync("UserList", userList);
     }
 }
