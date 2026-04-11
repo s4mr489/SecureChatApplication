@@ -22,15 +22,19 @@ public sealed class EncryptedMessage
     public required string RecipientUsername { get; init; }
 
     /// <summary>
-    /// Base64-encoded ciphertext (AES-CBC encrypted message).
+    /// Base64-encoded ciphertext encrypted with AES-GCM.
     /// </summary>
     public required string Ciphertext { get; init; }
 
     /// <summary>
-    /// Base64-encoded initialization vector (IV) for AES-CBC (16 bytes).
-    /// Must be random and unique for each message with the same key.
+    /// Base64-encoded nonce for AES-GCM (12 bytes).
     /// </summary>
-    public required string IV { get; init; }
+    public required string Nonce { get; init; }
+
+    /// <summary>
+    /// Base64-encoded authentication tag for AES-GCM (16 bytes).
+    /// </summary>
+    public required string Tag { get; init; }
 
     /// <summary>
     /// UTC timestamp when the message was sent.

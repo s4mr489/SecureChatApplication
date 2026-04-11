@@ -4,78 +4,68 @@ using System.Security.Cryptography;
 
 namespace SecureChatApplication.Examples;
 
-/// <summary>
-/// Complete example demonstrating Diffie-Hellman key exchange with AES encryption.
-/// This shows the full workflow from key exchange to encrypted messaging.
-/// </summary>
-public class EncryptionExample
+public static class EncryptionExample
 {
     /// <summary>
     /// Demonstrates complete end-to-end encryption between Alice and Bob.
     /// </summary>
     public static void DemonstrateCompleteWorkflow()
     {
-        Console.WriteLine("=== Diffie-Hellman + AES Encryption Demo ===\n");
+        Console.WriteLine("=== ECDH + HKDF + AES-GCM Encryption Demo ===\n");
 
-        // Initialize services for Alice
-        using var aliceDH = new DiffieHellmanService();
-        var aliceAES = new AesEncryptionService();
-        aliceDH.SetOwnUsername("Alice");
+        using var aliceKeyExchange = new KeyExchangeService();
+        var aliceCrypto = new CryptoService();
 
-        // Initialize services for Bob
-        using var bobDH = new DiffieHellmanService();
-        var bobAES = new AesEncryptionService();
-        bobDH.SetOwnUsername("Bob");
+        using var bobKeyExchange = new KeyExchangeService();
+        var bobCrypto = new CryptoService();
 
         Console.WriteLine("Step 1: Key Exchange");
         Console.WriteLine("--------------------");
 
         // Alice generates her key pair for Bob
-        string alicePublicKey = aliceDH.GenerateKeyPair("Bob");
+        var alicePublicKey = aliceKeyExchange.GeneratePublicKey("Bob");
         Console.WriteLine($"Alice generated public key: {alicePublicKey.Substring(0, 32)}...");
 
         // Bob generates his key pair for Alice
-        string bobPublicKey = bobDH.GenerateKeyPair("Alice");
+        var bobPublicKey = bobKeyExchange.GeneratePublicKey("Alice");
         Console.WriteLine($"Bob generated public key: {bobPublicKey.Substring(0, 32)}...");
 
         // Both derive the shared secret
-        byte[] aliceSharedKey = aliceDH.DeriveSharedKey("Bob", bobPublicKey);
-        byte[] bobSharedKey = bobDH.DeriveSharedKey("Alice", alicePublicKey);
+        var aliceKey = aliceKeyExchange.DeriveSharedKey("Bob", bobPublicKey, "Alice");
+        var bobKey = bobKeyExchange.DeriveSharedKey("Alice", alicePublicKey, "Bob");
 
-        Console.WriteLine($"\nAlice's shared key: {Convert.ToBase64String(aliceSharedKey).Substring(0, 32)}...");
-        Console.WriteLine($"Bob's shared key: {Convert.ToBase64String(bobSharedKey).Substring(0, 32)}...");
-        Console.WriteLine($"Keys match: {aliceSharedKey.SequenceEqual(bobSharedKey)} ?\n");
+        Console.WriteLine($"\nAlice's shared key: {Convert.ToBase64String(aliceKey).Substring(0, 32)}...");
+        Console.WriteLine($"Bob's shared key: {Convert.ToBase64String(bobKey).Substring(0, 32)}...");
+        Console.WriteLine($"Keys match: {aliceKey.SequenceEqual(bobKey)} ?\n");
 
         Console.WriteLine("Step 2: Alice Sends Encrypted Message to Bob");
         Console.WriteLine("---------------------------------------------");
 
         // Alice encrypts a message
-        string aliceMessage = "Hello Bob! This is a secret message from Alice.";
+        string aliceMessage = "Hello Bob, this is authenticated and encrypted.";
         Console.WriteLine($"Alice's plaintext: \"{aliceMessage}\"");
 
-        var (ciphertext, iv) = aliceAES.Encrypt(aliceMessage, aliceSharedKey);
-        Console.WriteLine($"Encrypted ciphertext: {ciphertext.Substring(0, 40)}...");
-        Console.WriteLine($"IV: {iv}");
+        var encrypted = aliceCrypto.Encrypt(aliceMessage, aliceKey);
+        Console.WriteLine($"Encrypted ciphertext: {encrypted.Ciphertext.Substring(0, 40)}...");
+        Console.WriteLine($"Nonce: {encrypted.Nonce}");
+        Console.WriteLine($"Tag: {encrypted.Tag}");
 
         // Create the encrypted message packet (what goes over the network)
-        var encryptedMessage = new EncryptedMessage
+        var payload = new EncryptedMessage
         {
             MessageId = Guid.NewGuid().ToString(),
             SenderUsername = "Alice",
             RecipientUsername = "Bob",
-            Ciphertext = ciphertext,
-            IV = iv,
+            Ciphertext = encrypted.Ciphertext,
+            Nonce = encrypted.Nonce,
+            Tag = encrypted.Tag,
             Timestamp = DateTime.UtcNow
         };
 
         Console.WriteLine("\n[Server relays encrypted message - cannot read it!]");
 
         // Bob receives and decrypts
-        string decryptedMessage = bobAES.Decrypt(
-            encryptedMessage.Ciphertext,
-            encryptedMessage.IV,
-            bobSharedKey
-        );
+        string decryptedMessage = bobCrypto.Decrypt(payload.Ciphertext, payload.Nonce, payload.Tag, bobKey);
 
         Console.WriteLine($"\nBob decrypted: \"{decryptedMessage}\"");
         Console.WriteLine($"Messages match: {aliceMessage == decryptedMessage} ?\n");
@@ -87,38 +77,32 @@ public class EncryptionExample
         string bobMessage = "Hi Alice! I received your secret message.";
         Console.WriteLine($"Bob's plaintext: \"{bobMessage}\"");
 
-        var (bobCiphertext, bobIV) = bobAES.Encrypt(bobMessage, bobSharedKey);
-        Console.WriteLine($"Encrypted ciphertext: {bobCiphertext.Substring(0, 40)}...");
-        Console.WriteLine($"IV: {bobIV}");
+        var bobEncrypted = bobCrypto.Encrypt(bobMessage, bobKey);
+        Console.WriteLine($"Encrypted ciphertext: {bobEncrypted.Ciphertext.Substring(0, 40)}...");
+        Console.WriteLine($"Nonce: {bobEncrypted.Nonce}");
+        Console.WriteLine($"Tag: {bobEncrypted.Tag}");
 
         // Alice receives and decrypts
-        string aliceDecrypted = aliceAES.Decrypt(bobCiphertext, bobIV, aliceSharedKey);
+        string aliceDecrypted = aliceCrypto.Decrypt(bobEncrypted.Ciphertext, bobEncrypted.Nonce, bobEncrypted.Tag, aliceKey);
         Console.WriteLine($"\nAlice decrypted: \"{aliceDecrypted}\"");
         Console.WriteLine($"Messages match: {bobMessage == aliceDecrypted} ?\n");
 
-        Console.WriteLine("Step 4: Security Verification");
+        Console.WriteLine("Step 4: Security Verification (All good! GCM provides integrity)");
         Console.WriteLine("-----------------------------");
 
-        // Show that each message has a unique IV
-        var (msg1Cipher, msg1IV) = aliceAES.Encrypt("Message 1", aliceSharedKey);
-        var (msg2Cipher, msg2IV) = aliceAES.Encrypt("Message 1", aliceSharedKey);
-        Console.WriteLine($"Same plaintext, different IVs: {msg1IV != msg2IV} ?");
-        Console.WriteLine($"Same plaintext, different ciphertexts: {msg1Cipher != msg2Cipher} ?");
-
         // Demonstrate key isolation (Alice can't decrypt messages meant for another user)
-        using var charlieDH = new DiffieHellmanService();
-        charlieDH.SetOwnUsername("Charlie");
-        string charliePublicKey = charlieDH.GenerateKeyPair("Bob");
-        byte[] charlieSharedKey = charlieDH.DeriveSharedKey("Bob", bobPublicKey);
+        using var charlieKeyExchange = new KeyExchangeService();
+        var charliePublicKey = charlieKeyExchange.GeneratePublicKey("Bob");
+        var charlieKey = charlieKeyExchange.DeriveSharedKey("Bob", bobPublicKey, "Charlie");
 
-        Console.WriteLine($"\nCharlie's shared key (with Bob): {Convert.ToBase64String(charlieSharedKey).Substring(0, 32)}...");
-        Console.WriteLine($"Charlie's key != Alice's key: {!charlieSharedKey.SequenceEqual(aliceSharedKey)} ?");
+        Console.WriteLine($"\nCharlie's shared key (with Bob): {Convert.ToBase64String(charlieKey).Substring(0, 32)}...");
+        Console.WriteLine($"Charlie's key != Alice's key: {!charlieKey.SequenceEqual(aliceKey)} ?");
 
         try
         {
             // Charlie tries to decrypt Alice's message - will fail!
-            var charlieAES = new AesEncryptionService();
-            string attemptedDecrypt = charlieAES.Decrypt(ciphertext, iv, charlieSharedKey);
+            var charlieCrypto = new CryptoService();
+            string attemptedDecrypt = charlieCrypto.Decrypt(encrypted.Ciphertext, encrypted.Nonce, encrypted.Tag, charlieKey);
             Console.WriteLine("Charlie SHOULD NOT be able to decrypt!");
         }
         catch (CryptographicException)
@@ -127,15 +111,14 @@ public class EncryptionExample
         }
 
         // Cleanup - zero out keys from memory
-        CryptographicOperations.ZeroMemory(aliceSharedKey);
-        CryptographicOperations.ZeroMemory(bobSharedKey);
-        CryptographicOperations.ZeroMemory(charlieSharedKey);
+        CryptographicOperations.ZeroMemory(aliceKey);
+        CryptographicOperations.ZeroMemory(bobKey);
+        CryptographicOperations.ZeroMemory(charlieKey);
 
         Console.WriteLine("\n=== Demo Complete ===");
         Console.WriteLine("\nKey Takeaways:");
         Console.WriteLine("? Alice and Bob derive the same shared key without transmitting it");
-        Console.WriteLine("? All messages are encrypted with AES-256-CBC");
-        Console.WriteLine("? Each message has a unique random IV");
+        Console.WriteLine("? All messages are encrypted with AES-GCM");
         Console.WriteLine("? Server cannot decrypt messages (only relays ciphertext)");
         Console.WriteLine("? Each user pair has a unique shared key");
         Console.WriteLine("? Sensitive keys are zeroed from memory after use");
@@ -148,22 +131,22 @@ public class EncryptionExample
     {
         Console.WriteLine("\n=== Network Transmission Example ===\n");
 
-        using var aliceDH = new DiffieHellmanService();
-        var aliceAES = new AesEncryptionService();
-        aliceDH.SetOwnUsername("Alice");
+        using var aliceKeyExchange = new KeyExchangeService();
+        var aliceCrypto = new CryptoService();
 
-        using var bobDH = new DiffieHellmanService();
-        bobDH.SetOwnUsername("Bob");
+        using var bobKeyExchange = new KeyExchangeService();
 
         // Step 1: Key Exchange Messages (transmitted in plaintext, but that's OK!)
-        string alicePublicKey = aliceDH.GenerateKeyPair("Bob");
-        string bobPublicKey = bobDH.GenerateKeyPair("Alice");
+        var alicePublicKey = aliceKeyExchange.GeneratePublicKey("Bob");
+        var bobPublicKey = bobKeyExchange.GeneratePublicKey("Alice");
 
         var keyExchangeMessage = new KeyExchangeMessage
         {
+            SenderUserId = "Alice",
             SenderUsername = "Alice",
             RecipientUsername = "Bob",
             PublicKey = alicePublicKey,
+            PublicKeyFingerprint = KeyExchangeService.ComputePublicKeyFingerprint(alicePublicKey),
             Timestamp = DateTime.UtcNow
         };
 
@@ -174,16 +157,17 @@ public class EncryptionExample
         Console.WriteLine($"  (Server can see this, but cannot derive shared key!)\n");
 
         // Step 2: Encrypted Message (content is hidden!)
-        byte[] sharedKey = aliceDH.DeriveSharedKey("Bob", bobPublicKey);
-        var (ciphertext, iv) = aliceAES.Encrypt("This is my secret message!", sharedKey);
+        var sharedKey = aliceKeyExchange.DeriveSharedKey("Bob", bobPublicKey, "Alice");
+        var encrypted = aliceCrypto.Encrypt("This is my secret message!", sharedKey);
 
         var encryptedMessage = new EncryptedMessage
         {
             MessageId = Guid.NewGuid().ToString(),
             SenderUsername = "Alice",
             RecipientUsername = "Bob",
-            Ciphertext = ciphertext,
-            IV = iv,
+            Ciphertext = encrypted.Ciphertext,
+            Nonce = encrypted.Nonce,
+            Tag = encrypted.Tag,
             Timestamp = DateTime.UtcNow
         };
 
@@ -192,7 +176,8 @@ public class EncryptionExample
         Console.WriteLine($"  From: {encryptedMessage.SenderUsername}");
         Console.WriteLine($"  To: {encryptedMessage.RecipientUsername}");
         Console.WriteLine($"  Ciphertext: {encryptedMessage.Ciphertext}");
-        Console.WriteLine($"  IV: {encryptedMessage.IV}");
+        Console.WriteLine($"  Nonce: {encryptedMessage.Nonce}");
+        Console.WriteLine($"  Tag: {encryptedMessage.Tag}");
         Console.WriteLine($"  Timestamp: {encryptedMessage.Timestamp}");
         Console.WriteLine($"\n  ?? Server CANNOT read the actual message content!");
         Console.WriteLine($"  ? Only Bob can decrypt this using his shared key\n");

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using SecureChatServer.Data;
 using SecureChatServer.Data.Repositories;
 using SecureChatServer.Hubs;
+using SecureChatServer.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,6 +13,10 @@ builder.Services.AddDbContext<SecureChatDbContext>(options =>
 // Register repositories
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IMessageRepository, MessageRepository>();
+
+// Register security services
+builder.Services.AddSingleton<RateLimiterService>();
+builder.Services.AddSingleton<AttackDetectionService>();
 
 // Add SignalR services
 builder.Services.AddSignalR(options =>
@@ -85,20 +90,59 @@ app.MapHub<ChatHub>("/chathub");
 // Health check endpoint
 app.MapGet("/health", () => Results.Ok(new { Status = "Healthy", Timestamp = DateTime.UtcNow }));
 
+// Security endpoints
+app.MapGet("/security/logs", (AttackDetectionService detector) => Results.Ok(detector.GetLogs()));
+app.MapGet("/security/alerts", (AttackDetectionService detector) => Results.Ok(detector.GetAlerts()));
+app.MapGet("/security/dashboard", async (AttackDetectionService detector, IUserRepository users) =>
+{
+    var onlineUsers = await users.GetOnlineUsernamesAsync();
+    var alerts = detector.GetAlerts(20);
+    return Results.Ok(new
+    {
+        ActiveUsers = onlineUsers,
+        AlertCount = alerts.Count,
+        RecentAlerts = alerts
+    });
+});
+app.MapPost("/security/simulate/{attackType}", (string attackType, AttackDetectionService detector) =>
+{
+    const string demoUser = "attacker-demo";
+    const string demoIp = "127.0.0.250";
+
+    switch (attackType.ToLowerInvariant())
+    {
+        case "bruteforce":
+            detector.SimulateBruteForce(demoUser, demoIp);
+            break;
+        case "flood":
+            detector.SimulateMessageFlood(demoUser, demoIp);
+            break;
+        case "fakekey":
+            detector.SimulateFakeKeyExchange(demoUser, demoIp);
+            break;
+        default:
+            return Results.BadRequest(new { Error = "Unknown simulation type. Use bruteforce, flood, or fakekey." });
+    }
+
+    return Results.Ok(new { Message = $"Simulation '{attackType}' executed." });
+});
+
 // Info endpoint (development only)
 if (app.Environment.IsDevelopment())
 {
     app.MapGet("/", () => Results.Ok(new
     {
         Service = "SecureChatServer",
-        Version = "1.0.0",
-        Description = "End-to-End Encrypted Chat Server with SQL Database",
-        SecurityNote = "This server NEVER sees plaintext messages. All encryption/decryption happens client-side.",
-        Database = "SQL Server (LocalDB)",
+        Version = "2.0.0",
+        Description = "End-to-End Encrypted Chat Server with security analytics",
         Endpoints = new
         {
             SignalRHub = "/chathub",
-            Health = "/health"
+            Health = "/health",
+            SecurityLogs = "/security/logs",
+            SecurityAlerts = "/security/alerts",
+            SecurityDashboard = "/security/dashboard",
+            SecuritySimulation = "/security/simulate/{bruteforce|flood|fakekey}"
         }
     }));
 }

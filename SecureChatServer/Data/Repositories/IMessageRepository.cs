@@ -15,8 +15,9 @@ public interface IMessageRepository
         string messageId,
         int senderId,
         int recipientId,
-        string ciphertext,
-        string iv,
+        string cipherText,
+        string nonce,
+        string tag,
         DateTime timestamp);
 
     /// <summary>

@@ -18,6 +18,11 @@ public interface IUserRepository
     Task<UserEntity?> GetByIdAsync(int id);
 
     /// <summary>
+    /// Gets a user by connection ID.
+    /// </summary>
+    Task<UserEntity?> GetByConnectionIdAsync(string connectionId);
+
+    /// <summary>
     /// Gets all online users.
     /// </summary>
     Task<List<UserEntity>> GetOnlineUsersAsync();

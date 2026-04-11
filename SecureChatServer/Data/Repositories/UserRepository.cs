@@ -26,6 +26,12 @@ public sealed class UserRepository : IUserRepository
         return await _context.Users.FindAsync(id);
     }
 
+    public async Task<UserEntity?> GetByConnectionIdAsync(string connectionId)
+    {
+        return await _context.Users
+            .FirstOrDefaultAsync(u => u.ConnectionId == connectionId && u.IsOnline);
+    }
+
     public async Task<List<UserEntity>> GetOnlineUsersAsync()
     {
         return await _context.Users
@@ -48,7 +54,6 @@ public sealed class UserRepository : IUserRepository
 
         if (user == null)
         {
-            // Create new user
             user = new UserEntity
             {
                 Username = username,
@@ -61,7 +66,6 @@ public sealed class UserRepository : IUserRepository
         }
         else
         {
-            // Update existing user
             user.ConnectionId = connectionId;
             user.IsOnline = true;
             user.LastLoginAt = DateTime.UtcNow;

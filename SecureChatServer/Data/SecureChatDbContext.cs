@@ -61,8 +61,12 @@ public sealed class SecureChatDbContext : DbContext
             entity.Property(e => e.Ciphertext)
                   .IsRequired();
 
-            entity.Property(e => e.IV)
-                  .HasMaxLength(32)
+            entity.Property(e => e.Nonce)
+                  .HasMaxLength(24)
+                  .IsRequired();
+
+            entity.Property(e => e.Tag)
+                  .HasMaxLength(24)
                   .IsRequired();
 
             // Configure relationships

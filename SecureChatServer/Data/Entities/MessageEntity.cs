@@ -40,9 +40,14 @@ public sealed class MessageEntity
     public required string Ciphertext { get; set; }
 
     /// <summary>
-    /// Base64-encoded initialization vector for AES-GCM decryption.
+    /// Base64-encoded nonce for AES-GCM.
     /// </summary>
-    public required string IV { get; set; }
+    public required string Nonce { get; set; }
+
+    /// <summary>
+    /// Base64-encoded authentication tag for AES-GCM.
+    /// </summary>
+    public required string Tag { get; set; }
 
     /// <summary>
     /// UTC timestamp when the message was sent.

@@ -1,158 +1,134 @@
-using System.Numerics;
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace SecureChatApplication.Services;
 
-public sealed class DiffieHellmanService : IDisposable
+public sealed class KeyExchangeService : IDisposable
 {
-    private static readonly BigInteger Prime = BigInteger.Parse("00FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA18217C32905E462E36CE3BE39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9DE2BCBF6955817183995497CEA956AE515D2261898FA051015728E5A8AACAA68FFFFFFFFFFFFFFFF", System.Globalization.NumberStyles.HexNumber);
-    private static readonly BigInteger Generator = new BigInteger(2);
-
-    private readonly Dictionary<string, BigInteger> _privateKeys = new();
-    private readonly Dictionary<string, string> _publicKeys = new();
-    private readonly object _lock = new();
+    private readonly ConcurrentDictionary<string, ECDiffieHellman> _privateKeysByPartner = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> _publicKeysByPartner = new(StringComparer.Ordinal);
     private bool _disposed;
-    private string? _ownUsername;
 
-    public void SetOwnUsername(string username)
-    {
-        _ownUsername = username;
-    }
-
-    /// <summary>
-    /// Generates a Diffie-Hellman key pair for a specific partner.
-    /// </summary>
-    /// <param name="partnerUsername">The username of the chat partner.</param>
-    /// <returns>Base64-encoded public key to send to the partner.</returns>
-    public string GenerateKeyPair(string partnerUsername)
+    public string GeneratePublicKey(string partnerUsername)
     {
         ThrowIfDisposed();
+        ArgumentException.ThrowIfNullOrWhiteSpace(partnerUsername);
 
-        lock (_lock)
+        var ecdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+
+        if (_privateKeysByPartner.TryRemove(partnerUsername, out var previousKey))
         {
-            if (_privateKeys.ContainsKey(partnerUsername))
-            {
-                _privateKeys.Remove(partnerUsername);
-            }
+            previousKey.Dispose();
+        }
 
-            byte[] privateKeyBytes = new byte[256];
-            RandomNumberGenerator.Fill(privateKeyBytes);
-            privateKeyBytes[255] &= 0x7F;
-            
-            BigInteger privateKey = new BigInteger(privateKeyBytes, isUnsigned: true);
-            _privateKeys[partnerUsername] = privateKey;
+        _privateKeysByPartner[partnerUsername] = ecdh;
 
-            BigInteger publicKey = BigInteger.ModPow(Generator, privateKey, Prime);
-            string publicKeyBase64 = Convert.ToBase64String(publicKey.ToByteArray());
-            
-            // Store our public key for this partner
-            _publicKeys[partnerUsername] = publicKeyBase64;
-            
-            return publicKeyBase64;
+        var publicKey = Convert.ToBase64String(ecdh.ExportSubjectPublicKeyInfo());
+        _publicKeysByPartner[partnerUsername] = publicKey;
+        return publicKey;
+    }
+
+    public byte[] DeriveSharedKey(string partnerUsername, string partnerPublicKeyBase64, string localUsername)
+    {
+        ThrowIfDisposed();
+        ArgumentException.ThrowIfNullOrWhiteSpace(partnerUsername);
+        ArgumentException.ThrowIfNullOrWhiteSpace(partnerPublicKeyBase64);
+        ArgumentException.ThrowIfNullOrWhiteSpace(localUsername);
+
+        if (!_privateKeysByPartner.TryGetValue(partnerUsername, out var localEcdh))
+        {
+            throw new InvalidOperationException($"No local key material exists for partner '{partnerUsername}'.");
+        }
+
+        var partnerPublicKeyBytes = Convert.FromBase64String(partnerPublicKeyBase64);
+        using var partnerEcdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        partnerEcdh.ImportSubjectPublicKeyInfo(partnerPublicKeyBytes, out _);
+
+        var sharedSecret = localEcdh.DeriveKeyMaterial(partnerEcdh.PublicKey);
+        try
+        {
+            return DeriveAesKey(sharedSecret, localUsername, partnerUsername);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(sharedSecret);
         }
     }
 
-    /// <summary>
-    /// Derives a shared AES-256 key from the partner's public key.
-    /// </summary>
-    /// <param name="partnerUsername">The username of the chat partner.</param>
-    /// <param name="partnerPublicKeyBase64">Base64-encoded public key from the partner.</param>
-    /// <returns>32-byte AES-256 key derived from the shared secret.</returns>
-    public byte[] DeriveSharedKey(string partnerUsername, string partnerPublicKeyBase64)
-    {
-        ThrowIfDisposed();
-
-        lock (_lock)
-        {
-            if (!_privateKeys.TryGetValue(partnerUsername, out var ourPrivateKey))
-            {
-                throw new InvalidOperationException(
-                    $"No private key found for partner: {partnerUsername}. Call GenerateKeyPair first.");
-            }
-
-            // Parse partner's public key
-            byte[] partnerPublicKeyBytes = Convert.FromBase64String(partnerPublicKeyBase64);
-            BigInteger partnerPublicKey = new BigInteger(partnerPublicKeyBytes, isUnsigned: true);
-
-            // Validate partner's public key is in valid range
-            if (partnerPublicKey <= BigInteger.One || partnerPublicKey >= Prime)
-            {
-                throw new ArgumentException("Invalid partner public key: out of valid range.", nameof(partnerPublicKeyBase64));
-            }
-
-            // Compute shared secret: s = (partner_public_key ^ our_private_key) mod prime
-            BigInteger sharedSecret = BigInteger.ModPow(partnerPublicKey, ourPrivateKey, Prime);
-
-            // Convert to byte array (big-endian for consistency)
-            byte[] sharedSecretBytes = sharedSecret.ToByteArray(isUnsigned: true, isBigEndian: true);
-
-            // Derive 32-byte AES key using SHA-256
-            byte[] aesKey = SHA256.HashData(sharedSecretBytes);
-
-            // Clear shared secret from memory
-            CryptographicOperations.ZeroMemory(sharedSecretBytes);
-
-            return aesKey;
-        }
-    }
-
-    /// <summary>
-    /// Checks if a key pair exists for the specified partner.
-    /// </summary>
-    /// <param name="partnerUsername">The username of the chat partner.</param>
-    /// <returns>True if a key pair exists, false otherwise.</returns>
     public bool HasKeyPairFor(string partnerUsername)
     {
         ThrowIfDisposed();
-        lock (_lock)
-        {
-            return _privateKeys.ContainsKey(partnerUsername);
-        }
+        return _privateKeysByPartner.ContainsKey(partnerUsername);
     }
 
-    /// <summary>
-    /// Gets the stored public key for a partner (if we already generated one).
-    /// </summary>
-    /// <param name="partnerUsername">The username of the chat partner.</param>
-    /// <returns>Base64-encoded public key.</returns>
     public string GetPublicKey(string partnerUsername)
     {
         ThrowIfDisposed();
-        lock (_lock)
+        ArgumentException.ThrowIfNullOrWhiteSpace(partnerUsername);
+
+        if (_publicKeysByPartner.TryGetValue(partnerUsername, out var publicKey))
         {
-            if (!_publicKeys.TryGetValue(partnerUsername, out var publicKey))
-            {
-                throw new InvalidOperationException(
-                    $"No public key found for partner: {partnerUsername}. Call GenerateKeyPair first.");
-            }
             return publicKey;
         }
+
+        throw new InvalidOperationException($"No public key exists for partner '{partnerUsername}'.");
     }
 
-    /// <summary>
-    /// Removes the key pair for a specific partner.
-    /// </summary>
-    /// <param name="partnerUsername">The username of the chat partner.</param>
+    public static string ComputePublicKeyFingerprint(string publicKeyBase64)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(publicKeyBase64);
+
+        var publicKeyBytes = Convert.FromBase64String(publicKeyBase64);
+        var hash = SHA256.HashData(publicKeyBytes);
+        return Convert.ToBase64String(hash);
+    }
+
     public void RemoveKeyPair(string partnerUsername)
     {
         ThrowIfDisposed();
-        lock (_lock)
+        ArgumentException.ThrowIfNullOrWhiteSpace(partnerUsername);
+
+        if (_privateKeysByPartner.TryRemove(partnerUsername, out var privateKey))
         {
-            _privateKeys.Remove(partnerUsername);
-            _publicKeys.Remove(partnerUsername);
+            privateKey.Dispose();
         }
+
+        _publicKeysByPartner.TryRemove(partnerUsername, out _);
     }
 
-    /// <summary>
-    /// Clears all stored key pairs.
-    /// </summary>
     public void ClearAllKeys()
     {
         ThrowIfDisposed();
-        lock (_lock)
+
+        foreach (var partner in _privateKeysByPartner.Keys.ToList())
         {
-            _privateKeys.Clear();
-            _publicKeys.Clear();
+            RemoveKeyPair(partner);
+        }
+    }
+
+    private static byte[] DeriveAesKey(byte[] sharedSecret, string userA, string userB)
+    {
+        var pair = string.CompareOrdinal(userA, userB) <= 0
+            ? $"{userA}|{userB}"
+            : $"{userB}|{userA}";
+
+        var info = Encoding.UTF8.GetBytes($"SecureChat:AESGCM:{pair}");
+        var salt = SHA256.HashData(Encoding.UTF8.GetBytes(pair));
+
+        using var extract = new HMACSHA256(salt);
+        var prk = extract.ComputeHash(sharedSecret);
+
+        try
+        {
+            using var expand = new HMACSHA256(prk);
+            var output = expand.ComputeHash([.. info, 0x01]);
+            return output.AsSpan(0, 32).ToArray();
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(prk);
+            CryptographicOperations.ZeroMemory(salt);
         }
     }
 
@@ -160,7 +136,7 @@ public sealed class DiffieHellmanService : IDisposable
     {
         if (_disposed)
         {
-            throw new ObjectDisposedException(nameof(DiffieHellmanService));
+            throw new ObjectDisposedException(nameof(KeyExchangeService));
         }
     }
 
@@ -171,11 +147,13 @@ public sealed class DiffieHellmanService : IDisposable
             return;
         }
 
-        lock (_lock)
+        foreach (var key in _privateKeysByPartner.Values)
         {
-            _privateKeys.Clear();
-            _publicKeys.Clear();
-            _disposed = true;
+            key.Dispose();
         }
+
+        _privateKeysByPartner.Clear();
+        _publicKeysByPartner.Clear();
+        _disposed = true;
     }
 }

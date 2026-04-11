@@ -1,144 +1,91 @@
 using System.Security.Cryptography;
+using System.Text;
 
 namespace SecureChatApplication.Services;
 
-/// <summary>
-/// Service for AES-CBC encryption.
-/// 
-/// SECURITY OVERVIEW:
-/// - Uses AES-256-CBC (Cipher Block Chaining mode)
-/// - Requires separate IV (Initialization Vector) for each encryption
-/// - IV must be random and unique for each message
-/// - Pads messages to block size using PKCS#7 padding
-/// 
-/// AES-CBC ENCRYPTION PROCESS:
-/// 1. Generate random 16-byte IV using secure RNG
-/// 2. Encrypt plaintext with AES-256-CBC using IV and key
-/// 3. Package: IV || Ciphertext
-/// 
-/// AES-CBC DECRYPTION PROCESS:
-/// 1. Extract IV and ciphertext from package
-/// 2. Decrypt ciphertext with AES-256-CBC using IV and key
-/// 3. Remove padding to obtain plaintext
-/// </summary>
-public sealed class AesEncryptionService
+public sealed class CryptoService
 {
-    // AES-256 key size: 32 bytes (256 bits)
     private const int KeySize = 32;
+    private const int NonceSize = 12;
+    private const int TagSize = 16;
 
-    /// <summary>
-    /// Encrypts a plaintext message using AES-256-CBC.
-    /// </summary>
-    /// <param name="plaintext">The message to encrypt.</param>
-    /// <param name="key">The AES-256 key (32 bytes).</param>
-    /// <returns>Tuple of (ciphertext, iv) both Base64-encoded.</returns>
-    /// <exception cref="ArgumentException">If key is not 32 bytes.</exception>
-    public (string Ciphertext, string IV) Encrypt(string plaintext, byte[] key)
+    public (string Ciphertext, string Nonce, string Tag) Encrypt(string plaintext, byte[] key)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(plaintext);
         ValidateKey(key);
 
-        // Convert plaintext to bytes using UTF-8 encoding
-        byte[] plaintextBytes = System.Text.Encoding.UTF8.GetBytes(plaintext);
-
-        using var aes = Aes.Create();
-        aes.Key = key;
-        aes.Mode = CipherMode.CBC;
-        aes.Padding = PaddingMode.PKCS7;
-        aes.GenerateIV();
-
-        byte[] iv = aes.IV;
-
-        using var encryptor = aes.CreateEncryptor();
-        byte[] ciphertext = encryptor.TransformFinalBlock(plaintextBytes, 0, plaintextBytes.Length);
-
-        // Clear plaintext from memory
-        CryptographicOperations.ZeroMemory(plaintextBytes);
-
-        // Return Base64-encoded components
-        return (
-            Ciphertext: Convert.ToBase64String(ciphertext),
-            IV: Convert.ToBase64String(iv)
-        );
-    }
-
-    /// <summary>
-    /// Decrypts an AES-256-CBC encrypted message.
-    /// </summary>
-    /// <param name="ciphertextBase64">Base64-encoded ciphertext.</param>
-    /// <param name="ivBase64">Base64-encoded IV (16 bytes).</param>
-    /// <param name="key">The AES-256 key (32 bytes).</param>
-    /// <returns>The decrypted plaintext message.</returns>
-    /// <exception cref="ArgumentException">If key is not 32 bytes.</exception>
-    /// <exception cref="CryptographicException">If decryption or padding removal fails.</exception>
-    public string Decrypt(string ciphertextBase64, string ivBase64, byte[] key)
-    {
-        ValidateKey(key);
-
-        // Decode Base64 inputs
-        byte[] ciphertext = Convert.FromBase64String(ciphertextBase64);
-        byte[] iv = Convert.FromBase64String(ivBase64);
-
-        // Validate IV size
-        if (iv.Length != 16)
-        {
-            throw new ArgumentException("IV must be 16 bytes.", nameof(ivBase64));
-        }
-
-        // Allocate buffer for decrypted plaintext
-        byte[] plaintext = new byte[ciphertext.Length];
+        var nonce = RandomNumberGenerator.GetBytes(NonceSize);
+        var plaintextBytes = Encoding.UTF8.GetBytes(plaintext);
+        var ciphertext = new byte[plaintextBytes.Length];
+        var tag = new byte[TagSize];
 
         try
         {
-            using var aes = Aes.Create();
-            aes.Key = key;
-            aes.Mode = CipherMode.CBC;
-            aes.Padding = PaddingMode.PKCS7;
-            aes.IV = iv;
+            using var aesGcm = new AesGcm(key, TagSize);
+            aesGcm.Encrypt(nonce, plaintextBytes, ciphertext, tag);
 
-            using var decryptor = aes.CreateDecryptor();
-            plaintext = decryptor.TransformFinalBlock(ciphertext, 0, ciphertext.Length);
-
-            // Convert decrypted bytes back to string
-            string result = System.Text.Encoding.UTF8.GetString(plaintext);
-
-            return result;
+            return (
+                Ciphertext: Convert.ToBase64String(ciphertext),
+                Nonce: Convert.ToBase64String(nonce),
+                Tag: Convert.ToBase64String(tag));
         }
         finally
         {
-            // Clear sensitive data from memory
-            if (plaintext != null)
-            {
-                CryptographicOperations.ZeroMemory(plaintext);
-            }
+            CryptographicOperations.ZeroMemory(plaintextBytes);
         }
     }
 
-    /// <summary>
-    /// Validates that the key is the correct size for AES-256.
-    /// </summary>
+    public string Decrypt(string ciphertextBase64, string nonceBase64, string tagBase64, byte[] key)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(ciphertextBase64);
+        ArgumentException.ThrowIfNullOrWhiteSpace(nonceBase64);
+        ArgumentException.ThrowIfNullOrWhiteSpace(tagBase64);
+        ValidateKey(key);
+
+        var ciphertext = Convert.FromBase64String(ciphertextBase64);
+        var nonce = Convert.FromBase64String(nonceBase64);
+        var tag = Convert.FromBase64String(tagBase64);
+
+        if (nonce.Length != NonceSize)
+        {
+            throw new ArgumentException("Nonce must be 12 bytes for AES-GCM.", nameof(nonceBase64));
+        }
+
+        if (tag.Length != TagSize)
+        {
+            throw new ArgumentException("Tag must be 16 bytes for AES-GCM.", nameof(tagBase64));
+        }
+
+        var plaintextBytes = new byte[ciphertext.Length];
+
+        try
+        {
+            using var aesGcm = new AesGcm(key, TagSize);
+            aesGcm.Decrypt(nonce, ciphertext, tag, plaintextBytes);
+            return Encoding.UTF8.GetString(plaintextBytes);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plaintextBytes);
+        }
+    }
+
     private static void ValidateKey(byte[] key)
     {
-        if (key == null)
-        {
-            throw new ArgumentNullException(nameof(key), "Encryption key cannot be null.");
-        }
+        ArgumentNullException.ThrowIfNull(key);
         if (key.Length != KeySize)
         {
-            throw new ArgumentException(
-                $"Key must be exactly {KeySize} bytes (256 bits) for AES-256. Got {key.Length} bytes.",
-                nameof(key));
+            throw new ArgumentException($"Key must be exactly {KeySize} bytes.", nameof(key));
         }
     }
+}
 
-    /// <summary>
-    /// Generates a cryptographically secure random AES-256 key.
-    /// Use this only for testing - in production, use DiffieHellmanService to derive keys.
-    /// </summary>
-    /// <returns>A random 32-byte key.</returns>
-    public static byte[] GenerateRandomKey()
-    {
-        byte[] key = new byte[KeySize];
-        RandomNumberGenerator.Fill(key);
-        return key;
-    }
+public sealed class AesEncryptionService
+{
+    private readonly CryptoService _cryptoService = new();
+
+    public (string Ciphertext, string Nonce, string Tag) Encrypt(string plaintext, byte[] key) => _cryptoService.Encrypt(plaintext, key);
+
+    public string Decrypt(string ciphertextBase64, string nonceBase64, string tagBase64, byte[] key) =>
+        _cryptoService.Decrypt(ciphertextBase64, nonceBase64, tagBase64, key);
 }

@@ -24,4 +24,9 @@ public sealed class ChatPartner
     /// Indicates if we initiated the key exchange (or are waiting for a response).
     /// </summary>
     public bool IsKeyExchangeInitiated { get; set; }
+
+    /// <summary>
+    /// Verified fingerprint for the partner public key.
+    /// </summary>
+    public string? PublicKeyFingerprint { get; set; }
 }

@@ -19,8 +19,9 @@ public sealed class MessageRepository : IMessageRepository
         string messageId,
         int senderId,
         int recipientId,
-        string ciphertext,
-        string iv,
+        string cipherText,
+        string nonce,
+        string tag,
         DateTime timestamp)
     {
         var message = new MessageEntity
@@ -28,8 +29,9 @@ public sealed class MessageRepository : IMessageRepository
             MessageId = messageId,
             SenderId = senderId,
             RecipientId = recipientId,
-            Ciphertext = ciphertext,
-            IV = iv,
+            Ciphertext = cipherText,
+            Nonce = nonce,
+            Tag = tag,
             Timestamp = timestamp,
             IsDelivered = false
         };

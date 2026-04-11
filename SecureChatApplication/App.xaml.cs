@@ -34,9 +34,8 @@ public partial class App : Application
     /// </summary>
     private static void ConfigureServices(IServiceCollection services)
     {
-        // Register cryptographic services (singleton for key management)
-        services.AddSingleton<DiffieHellmanService>();
-        services.AddSingleton<AesEncryptionService>();
+        services.AddSingleton<KeyExchangeService>();
+        services.AddSingleton<CryptoService>();
 
         // Register SignalR chat service (singleton for connection management)
         services.AddSingleton<SignalRChatService>();
