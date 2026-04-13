@@ -242,6 +242,48 @@ public sealed class ChatHub : Hub
     }
 
     /// <summary>
+    /// Returns the last <paramref name="take"/> encrypted messages exchanged between
+    /// the caller and <paramref name="partnerUsername"/>.
+    /// Messages are still encrypted — the server cannot read them.
+    /// </summary>
+    public async Task GetMessageHistory(string partnerUsername, int take = 50)
+    {
+        var caller = await _userRepository.GetByConnectionIdAsync(Context.ConnectionId);
+        if (caller == null)
+        {
+            await Clients.Caller.SendAsync("Error", "Not authenticated.");
+            return;
+        }
+
+        var partner = await _userRepository.GetByUsernameAsync(partnerUsername);
+        if (partner == null)
+        {
+            // Return empty list — partner has never existed
+            await Clients.Caller.SendAsync("MessageHistory", partnerUsername, new List<EncryptedMessage>());
+            return;
+        }
+
+        var capped = Math.Clamp(take, 1, 100);
+        var rows = await _messageRepository.GetMessageHistoryAsync(caller.Id, partner.Id, capped);
+
+        var result = rows
+            .OrderBy(m => m.Timestamp)
+            .Select(m => new EncryptedMessage
+            {
+                MessageId = m.MessageId,
+                SenderUsername = m.Sender.Username,
+                RecipientUsername = m.Recipient.Username,
+                Ciphertext = m.Ciphertext,
+                Nonce = m.Nonce,
+                Tag = m.Tag,
+                Timestamp = m.Timestamp
+            })
+            .ToList();
+
+        await Clients.Caller.SendAsync("MessageHistory", partnerUsername, result);
+    }
+
+    /// <summary>
     /// Returns the list of currently connected users.
     /// </summary>
     public async Task GetOnlineUsers()

@@ -67,6 +67,12 @@ public sealed class SignalRChatService : IAsyncDisposable
     public event Action<HubConnectionState>? OnConnectionStateChanged;
 
     /// <summary>
+    /// Event raised when message history arrives for a partner.
+    /// Parameters: partnerUsername, ordered list of encrypted messages.
+    /// </summary>
+    public event Action<string, List<EncryptedMessage>>? OnMessageHistoryReceived;
+
+    /// <summary>
     /// Current connection state.
     /// </summary>
     public HubConnectionState ConnectionState => _hubConnection?.State ?? HubConnectionState.Disconnected;
@@ -184,6 +190,11 @@ public sealed class SignalRChatService : IAsyncDisposable
         {
             OnMessageDelivered?.Invoke(messageId);
         });
+
+        _hubConnection.On<string, List<EncryptedMessage>>("MessageHistory", (partnerUsername, messages) =>
+        {
+            OnMessageHistoryReceived?.Invoke(partnerUsername, messages);
+        });
     }
 
     /// <summary>
@@ -228,6 +239,18 @@ public sealed class SignalRChatService : IAsyncDisposable
         EnsureConnected();
 
         await _hubConnection!.InvokeAsync("SendEncryptedMessage", message);
+    }
+
+    /// <summary>
+    /// Requests encrypted message history with a partner from the server.
+    /// Raises <see cref="OnMessageHistoryReceived"/> when the server responds.
+    /// </summary>
+    public async Task GetMessageHistoryAsync(string partnerUsername, int take = 50)
+    {
+        ThrowIfDisposed();
+        EnsureConnected();
+
+        await _hubConnection!.InvokeAsync("GetMessageHistory", partnerUsername, take);
     }
 
     /// <summary>

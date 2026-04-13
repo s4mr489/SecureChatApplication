@@ -40,9 +40,13 @@ public partial class App : Application
         // Register SignalR chat service (singleton for connection management)
         services.AddSingleton<SignalRChatService>();
 
+        // Register security dashboard service (singleton — holds configured HttpClient)
+        services.AddSingleton<ISecurityDashboardService, SecurityDashboardService>();
+
         // Register view models (transient - new instance each time)
         services.AddTransient<LoginViewModel>();
         services.AddTransient<ChatViewModel>();
+        services.AddTransient<SecurityDashboardViewModel>();
 
         // Register main window
         services.AddSingleton<MainWindow>();

@@ -7,10 +7,16 @@
     <Application.Resources>
         <!-- Value Converters -->
         <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter"/>
         <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
         <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
         <converters:NullToVisibilityInverseConverter x:Key="NullToVisibilityInverseConverter"/>
         <converters:FirstLetterConverter x:Key="FirstLetterConverter"/>
         <converters:InverseBoolConverter x:Key="InverseBoolConverter"/>
+        <converters:SeverityToBrushConverter x:Key="SeverityToBrushConverter"/>
+        <converters:SeverityToIconConverter x:Key="SeverityToIconConverter"/>
+        <converters:BoolToStatusIconConverter x:Key="BoolToStatusIconConverter"/>
+        <converters:BoolToStatusBrushConverter x:Key="BoolToStatusBrushConverter"/>
+        <converters:BoolToDeliveredIconConverter x:Key="BoolToDeliveredIconConverter"/>
     </Application.Resources>
 </Application>

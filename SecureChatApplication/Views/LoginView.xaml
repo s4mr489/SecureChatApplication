@@ -1,14 +1,14 @@
 <UserControl x:Class="SecureChatApplication.Views.LoginView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
-             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
-             mc:Ignorable="d" 
-             d:DesignHeight="450" d:DesignWidth="400"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             d:DesignHeight="600" d:DesignWidth="420"
              Background="#1E1E2E">
-    
+
     <UserControl.Resources>
-        <!-- Modern Dark Theme Styles -->
+
         <Style x:Key="ModernTextBox" TargetType="TextBox">
             <Setter Property="Background" Value="#2D2D3D"/>
             <Setter Property="Foreground" Value="#FFFFFF"/>
@@ -24,7 +24,7 @@
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
                                 CornerRadius="8">
-                            <ScrollViewer x:Name="PART_ContentHost" 
+                            <ScrollViewer x:Name="PART_ContentHost"
                                           Margin="{TemplateBinding Padding}"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -39,7 +39,37 @@
                 </Setter.Value>
             </Setter>
         </Style>
-        
+
+        <!-- Shared PasswordBox style — used by both password fields -->
+        <Style x:Key="ModernPasswordBox" TargetType="PasswordBox">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="CaretBrush" Value="#FFFFFF"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="PasswordBox">
+                        <Border x:Name="border"
+                                Background="#2D2D3D"
+                                BorderBrush="#3D3D5C"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="12,10">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="#7C3AED"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="#5B5B8C"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="ModernButton" TargetType="Button">
             <Setter Property="Background" Value="#7C3AED"/>
             <Setter Property="Foreground" Value="#FFFFFF"/>
@@ -51,11 +81,11 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" 
+                        <Border x:Name="border"
                                 Background="{TemplateBinding Background}"
                                 CornerRadius="8"
                                 Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" 
+                            <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -74,113 +104,170 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
     </UserControl.Resources>
-    
-    <Grid>
-        <Border Background="#252536" CornerRadius="16" Margin="40"
-                VerticalAlignment="Center" HorizontalAlignment="Center"
-                MinWidth="320" Padding="32">
-            <Border.Effect>
-                <DropShadowEffect Color="#000000" BlurRadius="30" ShadowDepth="0" Opacity="0.3"/>
-            </Border.Effect>
-            
-            <StackPanel>
-                <!-- Logo/Title -->
-                <StackPanel Margin="0,0,0,32" HorizontalAlignment="Center">
-                    <TextBlock Text="&#x1F512;" FontSize="48" HorizontalAlignment="Center"/>
-                    <TextBlock Text="Secure Chat" 
-                               FontSize="28" FontWeight="Bold" 
-                               Foreground="#FFFFFF"
-                               HorizontalAlignment="Center"
-                               Margin="0,8,0,0"/>
-                    <TextBlock Text="End-to-End Encrypted" 
-                               FontSize="12" 
-                               Foreground="#8B8BA3"
-                               HorizontalAlignment="Center"
-                               Margin="0,4,0,0"/>
-                </StackPanel>
-                
-                <!-- Username Input -->
-                <TextBlock Text="Username" 
-                           Foreground="#B8B8D1" 
-                           FontSize="12" 
-                           Margin="0,0,0,6"/>
-                <TextBox Style="{StaticResource ModernTextBox}"
-                         Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}"
-                         MaxLength="20"/>
-                
-                <!-- Server URL Input -->
-                <TextBlock Text="Server URL" 
-                           Foreground="#B8B8D1" 
-                           FontSize="12" 
-                           Margin="0,16,0,6"/>
-                <TextBox Style="{StaticResource ModernTextBox}"
-                         Text="{Binding ServerUrl, UpdateSourceTrigger=PropertyChanged}"/>
-                
-                <!-- Connect Button -->
-                <Button Style="{StaticResource ModernButton}"
-                        Content="Connect"
-                        Command="{Binding ConnectCommand}"
-                        Margin="0,24,0,0"/>
-                
-                <!-- Loading Indicator -->
-                <StackPanel Orientation="Horizontal" 
-                            HorizontalAlignment="Center"
-                            Margin="0,16,0,0"
-                            Visibility="{Binding IsConnecting, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <TextBlock Text="*" Foreground="#7C3AED" FontSize="8" Margin="0,0,4,0">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsConnecting}" Value="True">
-                                        <DataTrigger.EnterActions>
-                                            <BeginStoryboard>
-                                                <Storyboard RepeatBehavior="Forever">
-                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                                                                     From="0.3" To="1" Duration="0:0:0.5"
-                                                                     AutoReverse="True"/>
-                                                </Storyboard>
-                                            </BeginStoryboard>
-                                        </DataTrigger.EnterActions>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-                    <TextBlock Text="Connecting..." 
-                               Foreground="#8B8BA3" 
-                               FontSize="12"/>
-                </StackPanel>
-                
-                <!-- Status Message -->
-                <TextBlock Text="{Binding StatusMessage}"
-                           Foreground="#F87171"
-                           FontSize="12"
-                           TextWrapping="Wrap"
-                           HorizontalAlignment="Center"
-                           Margin="0,12,0,0"
-                           Visibility="{Binding StatusMessage, Converter={StaticResource StringToVisibilityConverter}}"/>
-                
-                <!-- Security Info -->
-                <Border Background="#1E1E2E" CornerRadius="8" Padding="12" Margin="0,24,0,0">
-                    <StackPanel>
-                        <TextBlock Text="&#x1F510; Security Features" 
-                                   Foreground="#B8B8D1" 
-                                   FontSize="11" 
-                                   FontWeight="SemiBold"/>
-                        <TextBlock Text="- ECDH Key Exchange (P-256)" 
-                                   Foreground="#6B6B8A" 
-                                   FontSize="10" 
+
+    <!--
+        ScrollViewer at root so the card never gets clipped in Register mode
+        when the Confirm Password field makes the form taller than the window.
+    -->
+    <ScrollViewer
+        
+        
+        
+        VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+        <Grid MinHeight="{Binding ActualHeight,
+                          RelativeSource={RelativeSource AncestorType=ScrollViewer}}">
+
+            <Border Background="#252536"
+                    CornerRadius="16"
+                    Margin="40"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Center"
+                    MinWidth="340" MaxWidth="420"
+                    Padding="32">
+                <Border.Effect>
+                    <DropShadowEffect Color="#000000" BlurRadius="30" ShadowDepth="0" Opacity="0.3"/>
+                </Border.Effect>
+
+                <StackPanel>
+
+                    <!-- Logo / Title -->
+                    <StackPanel HorizontalAlignment="Center" Margin="0,0,0,28">
+                        <TextBlock Text="&#x1F512;" FontSize="44" HorizontalAlignment="Center"/>
+                        <TextBlock Text="Secure Chat"
+                                   FontSize="26" FontWeight="Bold"
+                                   Foreground="#FFFFFF"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,8,0,0"/>
+                        <TextBlock Text="End-to-End Encrypted"
+                                   FontSize="12"
+                                   Foreground="#8B8BA3"
+                                   HorizontalAlignment="Center"
                                    Margin="0,4,0,0"/>
-                        <TextBlock Text="- AES-256-GCM Encryption" 
-                                   Foreground="#6B6B8A" 
-                                   FontSize="10"/>
-                        <TextBlock Text="- Server Never Sees Plaintext" 
-                                   Foreground="#6B6B8A" 
-                                   FontSize="10"/>
                     </StackPanel>
-                </Border>
-            </StackPanel>
-        </Border>
-    </Grid>
+
+                    <!-- Username -->
+                    <TextBlock Text="Username" Foreground="#B8B8D1" FontSize="12" Margin="0,0,0,6"/>
+                    <TextBox Style="{StaticResource ModernTextBox}"
+                             Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}"
+                             MaxLength="20"/>
+
+                    <!-- Password -->
+                    <TextBlock Text="Password" Foreground="#B8B8D1" FontSize="12" Margin="0,14,0,6"/>
+                    <PasswordBox x:Name="PasswordBox"
+                                 Style="{StaticResource ModernPasswordBox}"
+                                 PasswordChanged="PasswordBox_PasswordChanged"
+                                 MaxLength="64"/>
+                    <!-- Inline password hint (non-blocking) -->
+                    <TextBlock Text="{Binding PasswordHint}"
+                               Foreground="#FCA5A5"
+                               FontSize="11"
+                               Margin="0,4,0,0"
+                               Visibility="{Binding PasswordHint,
+                                            Converter={StaticResource StringToVisibilityConverter}}"/>
+
+                    <!-- Confirm Password — visible in Register mode only -->
+                    <StackPanel Visibility="{Binding IsRegisterMode,
+                                             Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock Text="Confirm Password"
+                                   Foreground="#B8B8D1" FontSize="12" Margin="0,14,0,6"/>
+                        <PasswordBox x:Name="ConfirmPasswordBox"
+                                     Style="{StaticResource ModernPasswordBox}"
+                                     PasswordChanged="ConfirmPasswordBox_PasswordChanged"
+                                     MaxLength="64"/>
+                    </StackPanel>
+
+                    <!-- Server URL -->
+                    <TextBlock Text="Server URL" Foreground="#B8B8D1" FontSize="12" Margin="0,14,0,6"/>
+                    <TextBox Style="{StaticResource ModernTextBox}"
+                             Text="{Binding ServerUrl, UpdateSourceTrigger=PropertyChanged}"/>
+
+                    <!-- Submit button — label changes between Connect / Register -->
+                    <Button Style="{StaticResource ModernButton}"
+                            Content="{Binding SubmitLabel}"
+                            Command="{Binding ConnectCommand}"
+                            HorizontalAlignment="Stretch"
+                            Margin="0,22,0,0"/>
+
+                    <!-- Login ↔ Register toggle link -->
+                    <Button Command="{Binding ToggleModeCommand}"
+                            HorizontalAlignment="Center"
+                            Margin="0,10,0,0"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Cursor="Hand">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <TextBlock x:Name="link"
+                                           Text="{Binding ToggleLabel}"
+                                           Foreground="#6B6B8A"
+                                           FontSize="11"
+                                           TextDecorations="Underline"/>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="link" Property="Foreground" Value="#B8B8D1"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+
+                    <!-- Connecting spinner -->
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Center"
+                                Margin="0,16,0,0"
+                                Visibility="{Binding IsConnecting,
+                                             Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Ellipse Width="8" Height="8" Fill="#7C3AED" Margin="0,0,8,0">
+                            <Ellipse.Style>
+                                <Style TargetType="Ellipse">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsConnecting}" Value="True">
+                                            <DataTrigger.EnterActions>
+                                                <BeginStoryboard>
+                                                    <Storyboard RepeatBehavior="Forever">
+                                                        <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                         From="0.2" To="1" Duration="0:0:0.6"
+                                                                         AutoReverse="True"/>
+                                                    </Storyboard>
+                                                </BeginStoryboard>
+                                            </DataTrigger.EnterActions>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Ellipse.Style>
+                        </Ellipse>
+                        <TextBlock Text="Connecting..." Foreground="#8B8BA3" FontSize="12"/>
+                    </StackPanel>
+
+                    <!-- Status / error message -->
+                    <TextBlock Text="{Binding StatusMessage}"
+                               Foreground="#F87171"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               HorizontalAlignment="Center"
+                               Margin="0,10,0,0"
+                               Visibility="{Binding StatusMessage,
+                                            Converter={StaticResource StringToVisibilityConverter}}"/>
+
+                    <!-- Security info footer -->
+                    <Border Background="#1E1E2E" CornerRadius="8" Padding="12" Margin="0,22,0,0">
+                        <StackPanel>
+                            <TextBlock Text="&#x1F510; Security Features"
+                                       Foreground="#B8B8D1" FontSize="11" FontWeight="SemiBold"/>
+                            <TextBlock Text="- ECDH Key Exchange (P-256)"
+                                       Foreground="#6B6B8A" FontSize="10" Margin="0,4,0,0"/>
+                            <TextBlock Text="- AES-256-GCM End-to-End Encryption"
+                                       Foreground="#6B6B8A" FontSize="10"/>
+                            <TextBlock Text="- Server Never Sees Plaintext"
+                                       Foreground="#6B6B8A" FontSize="10"/>
+                        </StackPanel>
+                    </Border>
+
+                </StackPanel>
+            </Border>
+        </Grid>
+    </ScrollViewer>
 </UserControl>

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
+using System.Windows.Media;
 
 namespace SecureChatApplication.Converters;
 
@@ -114,4 +115,102 @@ public class InverseBoolConverter : IValueConverter
         }
         return false;
     }
+}
+
+/// <summary>
+/// Converts a boolean to Visibility, inverted (false → Visible, true → Collapsed).
+/// </summary>
+public class InverseBoolToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is bool b)
+            return b ? Visibility.Collapsed : Visibility.Visible;
+        return Visibility.Visible;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotImplementedException();
+}
+
+/// <summary>
+/// Maps alert/severity string ("High", "Medium", "Low") to a SolidColorBrush.
+/// </summary>
+public class SeverityToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        return value switch
+        {
+            "High" or "Critical" => new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44)),
+            "Medium" => new SolidColorBrush(Color.FromRgb(0xEA, 0xB3, 0x08)),
+            "Low" => new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6)),
+            _ => new SolidColorBrush(Color.FromRgb(0x6B, 0x7B, 0x8A))
+        };
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotImplementedException();
+}
+
+/// <summary>
+/// Maps alert severity to a short label icon.
+/// </summary>
+public class SeverityToIconConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        return value switch
+        {
+            "High" or "Critical" => "🔴",
+            "Medium" => "🟡",
+            "Low" => "🔵",
+            _ => "⚪"
+        };
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotImplementedException();
+}
+
+/// <summary>
+/// Maps event success bool to a checkmark or cross icon.
+/// </summary>
+public class BoolToStatusIconConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        return value is true ? "✓" : "✗";
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotImplementedException();
+}
+
+/// <summary>
+/// Maps event success bool to a color brush (green / red).
+/// </summary>
+public class BoolToStatusBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        return value is true
+            ? new SolidColorBrush(Color.FromRgb(0x10, 0xB9, 0x81))
+            : new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44));
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotImplementedException();
+}
+
+/// <summary>
+/// Maps IsDelivered bool to a delivery icon string (✓ / ⋯).
+/// </summary>
+public class BoolToDeliveredIconConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => value is true ? "✓" : "⋯";
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotImplementedException();
 }
