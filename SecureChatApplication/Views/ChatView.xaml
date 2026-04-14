@@ -1,14 +1,18 @@
 <UserControl x:Class="SecureChatApplication.Views.ChatView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
-             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
-             mc:Ignorable="d" 
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:converters="clr-namespace:SecureChatApplication.Converters"
+             mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="900"
              Background="#1E1E2E">
-    
+
     <UserControl.Resources>
-        <!-- Message Bubble Styles -->
+        <converters:BytesToImageConverter x:Key="BytesToImageConverter"/>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+
+        <!-- ── Text message templates (unchanged) ── -->
         <DataTemplate x:Key="OwnMessageTemplate">
             <Border Background="#7C3AED" CornerRadius="16,16,4,16" 
                     Padding="14,10" Margin="80,4,8,4"
@@ -48,13 +52,79 @@
                 </Border>
             </StackPanel>
         </DataTemplate>
-        
+
+        <!-- ── Own media bubble (image or file, right-aligned) ── -->
+        <DataTemplate x:Key="OwnMediaTemplate">
+            <Border Background="#7C3AED" CornerRadius="16,16,4,16"
+                    Padding="14,10" Margin="80,4,8,4"
+                    HorizontalAlignment="Right" MaxWidth="400">
+                <StackPanel>
+                    <!-- Inline image -->
+                    <Image Source="{Binding MediaBytes, Converter={StaticResource BytesToImageConverter}}"
+                           MaxWidth="300" MaxHeight="300" Stretch="Uniform"
+                           Visibility="{Binding IsImage, Converter={StaticResource BoolToVisibilityConverter}}"
+                           Margin="0,0,0,6"/>
+                    <!-- File attachment row -->
+                    <StackPanel Orientation="Horizontal"
+                                Visibility="{Binding IsFile, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock Text="📎 " Foreground="#FFFFFF" FontSize="16" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding FileName}" Foreground="#FFFFFF"
+                                   FontSize="13" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        <Button Content="💾" FontSize="13"
+                                Background="Transparent" BorderThickness="0"
+                                Foreground="#D8B4FE" Cursor="Hand"
+                                ToolTip="Save file"
+                                Click="SaveFile_Click"
+                                Margin="8,0,0,0" Padding="4,0"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm}'}"
+                               Foreground="#D8B4FE" FontSize="10"
+                               HorizontalAlignment="Right" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <!-- ── Other media bubble (image or file, left-aligned) ── -->
+        <DataTemplate x:Key="OtherMediaTemplate">
+            <StackPanel Margin="8,4,80,4" HorizontalAlignment="Left" MaxWidth="400">
+                <TextBlock Text="{Binding SenderUsername}"
+                           Foreground="#8B8BA3" FontSize="11" Margin="12,0,0,2"/>
+                <Border Background="#2D2D3D" CornerRadius="16,16,16,4" Padding="14,10">
+                    <StackPanel>
+                        <!-- Inline image -->
+                        <Image Source="{Binding MediaBytes, Converter={StaticResource BytesToImageConverter}}"
+                               MaxWidth="300" MaxHeight="300" Stretch="Uniform"
+                               Visibility="{Binding IsImage, Converter={StaticResource BoolToVisibilityConverter}}"
+                               Margin="0,0,0,6"/>
+                        <!-- File attachment row -->
+                        <StackPanel Orientation="Horizontal"
+                                    Visibility="{Binding IsFile, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="📎 " Foreground="#FFFFFF" FontSize="16" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding FileName}" Foreground="#FFFFFF"
+                                       FontSize="13" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                            <Button Content="💾" FontSize="13"
+                                    Background="Transparent" BorderThickness="0"
+                                    Foreground="#8B8BA3" Cursor="Hand"
+                                    ToolTip="Save file"
+                                    Click="SaveFile_Click"
+                                    Margin="8,0,0,0" Padding="4,0"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm}'}"
+                                   Foreground="#6B6B8A" FontSize="10"
+                                   HorizontalAlignment="Right" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </DataTemplate>
+
         <!-- Message Template Selector -->
         <local:MessageTemplateSelector x:Key="MessageTemplateSelector"
                                        OwnMessageTemplate="{StaticResource OwnMessageTemplate}"
                                        OtherMessageTemplate="{StaticResource OtherMessageTemplate}"
+                                       OwnMediaTemplate="{StaticResource OwnMediaTemplate}"
+                                       OtherMediaTemplate="{StaticResource OtherMediaTemplate}"
                                        xmlns:local="clr-namespace:SecureChatApplication.Views"/>
-        
+
         <!-- User List Item Style -->
         <Style x:Key="UserListItemStyle" TargetType="ListBoxItem">
             <Setter Property="Background" Value="Transparent"/>
@@ -144,6 +214,42 @@
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="border" Property="Background" Value="#4B4B6B"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Media (paperclip) button -->
+        <Style x:Key="MediaButton" TargetType="Button">
+            <Setter Property="Background" Value="#3D3D5C"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Width" Value="48"/>
+            <Setter Property="Height" Value="48"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="ToolTip" Value="Send file or image (max 8 MB)"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="24">
+                            <TextBlock Text="📎" FontSize="20"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#4B4B6B"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#2D2D3D"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Background" Value="#2D2D3D"/>
+                                <Setter Property="Foreground" Value="#4B4B6B"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -397,18 +503,26 @@
             </Border>
             
             <!-- Message Input -->
-            <Border Grid.Row="2" 
-                    Background="#252536" 
+            <Border Grid.Row="2"
+                    Background="#252536"
                     Padding="16"
-                    BorderBrush="#3D3D5C" 
+                    BorderBrush="#3D3D5C"
                     BorderThickness="0,1,0,0">
                 <Grid>
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    
-                    <TextBox Grid.Column="0"
+
+                    <!-- Paperclip / Send Media button -->
+                    <Button Grid.Column="0"
+                            Style="{StaticResource MediaButton}"
+                            Command="{Binding SendMediaCommand}"
+                            IsEnabled="{Binding CanSendMedia}"
+                            Margin="0,0,8,0"/>
+
+                    <TextBox Grid.Column="1"
                              Style="{StaticResource MessageTextBox}"
                              Text="{Binding MessageText, UpdateSourceTrigger=PropertyChanged}"
                              IsEnabled="{Binding SelectedUser.IsKeyExchangeComplete}">
@@ -416,8 +530,8 @@
                             <KeyBinding Key="Return" Command="{Binding SendMessageCommand}"/>
                         </TextBox.InputBindings>
                     </TextBox>
-                    
-                    <Button Grid.Column="1"
+
+                    <Button Grid.Column="2"
                             Style="{StaticResource SendButton}"
                             Command="{Binding SendMessageCommand}"
                             IsEnabled="{Binding CanSendMessage}"

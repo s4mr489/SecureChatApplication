@@ -1,7 +1,9 @@
+using Microsoft.Win32;
 using SecureChatApplication.Models;
 using SecureChatApplication.Services;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Security.Cryptography;
 using System.Windows;
 
@@ -9,6 +11,8 @@ namespace SecureChatApplication.ViewModels;
 
 public sealed class ChatViewModel : ViewModelBase, IDisposable
 {
+    private const long MaxMediaSizeBytes = 8L * 1024 * 1024; // 8 MB
+
     private readonly SignalRChatService _chatService;
     private readonly KeyExchangeService _keyExchangeService;
     private readonly CryptoService _cryptoService;
@@ -30,6 +34,7 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
         _cryptoService = cryptoService;
 
         SendMessageCommand = new AsyncRelayCommand(SendMessageAsync, CanSendMessageCheck);
+        SendMediaCommand = new AsyncRelayCommand(SendMediaAsync, CanSendMediaCheck);
         DisconnectCommand = new AsyncRelayCommand(DisconnectAsync);
 
         _chatService.OnUserJoined += OnUserJoined;
@@ -60,7 +65,9 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                 OnSelectedUserChanged();
                 OnPropertyChanged(nameof(Messages));
                 OnPropertyChanged(nameof(CanSendMessage));
+                OnPropertyChanged(nameof(CanSendMedia));
                 SendMessageCommand.RaiseCanExecuteChanged();
+                SendMediaCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -99,7 +106,11 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
     public bool CanSendMessage => _selectedUser?.IsKeyExchangeComplete == true
                                   && !string.IsNullOrWhiteSpace(MessageText);
 
+    public bool CanSendMedia => _selectedUser?.IsKeyExchangeComplete == true;
+
     public AsyncRelayCommand SendMessageCommand { get; }
+
+    public AsyncRelayCommand SendMediaCommand { get; }
 
     public AsyncRelayCommand DisconnectCommand { get; }
 
@@ -181,7 +192,9 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                     partner.PublicKeyFingerprint = keyExchange.PublicKeyFingerprint;
                     partner.IsKeyExchangeComplete = true;
                     OnPropertyChanged(nameof(CanSendMessage));
+                    OnPropertyChanged(nameof(CanSendMedia));
                     SendMessageCommand.RaiseCanExecuteChanged();
+                    SendMediaCommand.RaiseCanExecuteChanged();
                 }
 
                 await _chatService.RespondToKeyExchangeAsync(new KeyExchangeMessage
@@ -229,7 +242,9 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                     partner.IsKeyExchangeComplete = true;
                     partner.IsKeyExchangeInitiated = false;
                     OnPropertyChanged(nameof(CanSendMessage));
+                    OnPropertyChanged(nameof(CanSendMedia));
                     SendMessageCommand.RaiseCanExecuteChanged();
+                    SendMediaCommand.RaiseCanExecuteChanged();
                 }
             }
             catch (Exception ex)
@@ -324,6 +339,78 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                && !string.IsNullOrWhiteSpace(MessageText);
     }
 
+    private bool CanSendMediaCheck()
+    {
+        return _selectedUser?.IsKeyExchangeComplete == true;
+    }
+
+    private async Task SendMediaAsync()
+    {
+        if (_selectedUser?.SharedKey == null) return;
+
+        var dialog = new OpenFileDialog
+        {
+            Title = "Select a file to send (max 8 MB)",
+            Filter = "Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)|*.png;*.jpg;*.jpeg;*.gif;*.bmp|All Files (*.*)|*.*"
+        };
+
+        if (dialog.ShowDialog() != true) return;
+
+        var filePath = dialog.FileName;
+        var fileName = Path.GetFileName(filePath);
+        var fileInfo = new FileInfo(filePath);
+
+        if (fileInfo.Length > MaxMediaSizeBytes)
+        {
+            MessageBox.Show("File exceeds the 8 MB limit.", "File Too Large",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var fileBytes = await File.ReadAllBytesAsync(filePath);
+        var ext = Path.GetExtension(filePath).ToLowerInvariant();
+        var messageType = ext is ".png" or ".jpg" or ".jpeg" or ".gif" or ".bmp" or ".webp" ? 1 : 2;
+        var messageId = Guid.NewGuid().ToString();
+        var timestamp = DateTime.UtcNow;
+
+        try
+        {
+            var payload = _cryptoService.EncryptBytes(fileBytes, _selectedUser.SharedKey);
+
+            var encryptedMessage = new EncryptedMessage
+            {
+                MessageId = messageId,
+                SenderUsername = CurrentUsername,
+                RecipientUsername = _selectedUser.Username,
+                Ciphertext = payload.Ciphertext,
+                Nonce = payload.Nonce,
+                Tag = payload.Tag,
+                Timestamp = timestamp,
+                MessageType = messageType,
+                FileName = fileName
+            };
+
+            Messages.Add(new ChatMessage
+            {
+                MessageId = messageId,
+                SenderUsername = CurrentUsername,
+                Content = fileName,
+                Timestamp = timestamp,
+                IsOwnMessage = true,
+                IsDelivered = false,
+                MessageType = messageType,
+                FileName = fileName,
+                MediaBytes = fileBytes
+            });
+
+            await _chatService.SendEncryptedMessageAsync(encryptedMessage);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to send media: {ex.Message}");
+        }
+    }
+
     private void OnEncryptedMessageReceived(EncryptedMessage encryptedMessage)
     {
         Application.Current.Dispatcher.Invoke(() =>
@@ -332,16 +419,28 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
             {
                 var senderUsername = encryptedMessage.SenderUsername;
                 var sender = OnlineUsers.FirstOrDefault(u => u.Username == senderUsername);
-                if (sender?.SharedKey == null)
-                {
-                    return;
-                }
+                if (sender?.SharedKey == null) return;
 
-                var plaintext = _cryptoService.Decrypt(
-                    encryptedMessage.Ciphertext,
-                    encryptedMessage.Nonce,
-                    encryptedMessage.Tag,
-                    sender.SharedKey);
+                string content;
+                byte[]? mediaBytes = null;
+
+                if (encryptedMessage.MessageType == 0)
+                {
+                    content = _cryptoService.Decrypt(
+                        encryptedMessage.Ciphertext,
+                        encryptedMessage.Nonce,
+                        encryptedMessage.Tag,
+                        sender.SharedKey);
+                }
+                else
+                {
+                    mediaBytes = _cryptoService.DecryptBytes(
+                        encryptedMessage.Ciphertext,
+                        encryptedMessage.Nonce,
+                        encryptedMessage.Tag,
+                        sender.SharedKey);
+                    content = encryptedMessage.FileName ?? "attachment";
+                }
 
                 if (!_messagesByUser.TryGetValue(senderUsername, out var messages))
                 {
@@ -353,10 +452,13 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                 {
                     MessageId = encryptedMessage.MessageId,
                     SenderUsername = senderUsername,
-                    Content = plaintext,
+                    Content = content,
                     Timestamp = encryptedMessage.Timestamp,
                     IsOwnMessage = false,
-                    IsDelivered = true
+                    IsDelivered = true,
+                    MessageType = encryptedMessage.MessageType,
+                    FileName = encryptedMessage.FileName,
+                    MediaBytes = mediaBytes
                 });
 
                 if (_selectedUser?.Username == senderUsername)

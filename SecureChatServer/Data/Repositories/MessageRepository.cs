@@ -22,7 +22,9 @@ public sealed class MessageRepository : IMessageRepository
         string cipherText,
         string nonce,
         string tag,
-        DateTime timestamp)
+        DateTime timestamp,
+        int messageType = 0,
+        string? fileName = null)
     {
         var message = new MessageEntity
         {
@@ -33,7 +35,9 @@ public sealed class MessageRepository : IMessageRepository
             Nonce = nonce,
             Tag = tag,
             Timestamp = timestamp,
-            IsDelivered = false
+            IsDelivered = false,
+            MessageType = messageType,
+            FileName = fileName
         };
 
         _context.Messages.Add(message);

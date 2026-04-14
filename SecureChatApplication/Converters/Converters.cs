@@ -1,7 +1,9 @@
 using System.Globalization;
+using System.IO;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace SecureChatApplication.Converters;
 
@@ -210,6 +212,30 @@ public class BoolToDeliveredIconConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         => value is true ? "✓" : "⋯";
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotImplementedException();
+}
+
+/// <summary>
+/// Converts a byte array to a WPF BitmapImage for inline image display.
+/// Returns null when the value is null or empty.
+/// </summary>
+public class BytesToImageConverter : IValueConverter
+{
+    public object? Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not byte[] bytes || bytes.Length == 0) return null;
+
+        var bitmap = new BitmapImage();
+        using var stream = new MemoryStream(bytes);
+        bitmap.BeginInit();
+        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+        bitmap.StreamSource = stream;
+        bitmap.EndInit();
+        bitmap.Freeze();
+        return bitmap;
+    }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => throw new NotImplementedException();

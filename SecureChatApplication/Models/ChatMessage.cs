@@ -56,4 +56,28 @@ public sealed class ChatMessage : INotifyPropertyChanged
             }
         }
     }
+
+    /// <summary>
+    /// Message type: 0 = Text, 1 = Image, 2 = File.
+    /// </summary>
+    public int MessageType { get; init; }
+
+    /// <summary>
+    /// Original filename for image/file messages.
+    /// </summary>
+    public string? FileName { get; init; }
+
+    /// <summary>
+    /// Decrypted raw bytes for image/file messages.
+    /// </summary>
+    public byte[]? MediaBytes { get; init; }
+
+    /// <summary>Whether this is a media (image or file) message.</summary>
+    public bool IsMedia => MessageType != 0;
+
+    /// <summary>Whether this is an inline image message.</summary>
+    public bool IsImage => MessageType == 1;
+
+    /// <summary>Whether this is a file attachment message.</summary>
+    public bool IsFile => MessageType == 2;
 }

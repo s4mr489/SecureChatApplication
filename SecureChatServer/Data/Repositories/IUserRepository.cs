@@ -51,4 +51,20 @@ public interface IUserRepository
     /// Gets the connection ID for a username.
     /// </summary>
     Task<string?> GetConnectionIdAsync(string username);
+
+    /// <summary>
+    /// Checks if a username already exists (regardless of online status).
+    /// </summary>
+    Task<bool> UsernameExistsAsync(string username);
+
+    /// <summary>
+    /// Creates a new user with a hashed password and marks them online.
+    /// Throws <see cref="InvalidOperationException"/> if the username is already taken.
+    /// </summary>
+    Task<UserEntity> RegisterUserAsync(string username, string password, string connectionId);
+
+    /// <summary>
+    /// Verifies credentials and marks the user online. Returns null on failure.
+    /// </summary>
+    Task<UserEntity?> ValidateAndJoinAsync(string username, string password, string connectionId);
 }

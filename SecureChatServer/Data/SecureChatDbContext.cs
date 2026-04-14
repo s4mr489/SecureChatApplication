@@ -69,6 +69,9 @@ public sealed class SecureChatDbContext : DbContext
                   .HasMaxLength(24)
                   .IsRequired();
 
+            entity.Property(e => e.FileName)
+                  .HasMaxLength(260);
+
             // Configure relationships
             entity.HasOne(e => e.Sender)
                   .WithMany(u => u.SentMessages)

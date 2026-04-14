@@ -60,7 +60,17 @@ public sealed class MessageEntity
     public bool IsDelivered { get; set; }
 
     /// <summary>
-    /// When the message was delivered (null if not delivered yet).
+    /// UTC timestamp when the message was delivered.
     /// </summary>
     public DateTime? DeliveredAt { get; set; }
+
+    /// <summary>
+    /// Message type: 0 = Text, 1 = Image, 2 = File.
+    /// </summary>
+    public int MessageType { get; set; }
+
+    /// <summary>
+    /// Original filename for image/file messages. Null for text messages.
+    /// </summary>
+    public string? FileName { get; set; }
 }

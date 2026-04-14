@@ -40,4 +40,14 @@ public sealed class EncryptedMessage
     /// UTC timestamp when the message was sent.
     /// </summary>
     public required DateTime Timestamp { get; init; }
+
+    /// <summary>
+    /// Message type: 0 = Text, 1 = Image, 2 = File.
+    /// </summary>
+    public int MessageType { get; init; }
+
+    /// <summary>
+    /// Original filename for image/file messages. Null for text messages.
+    /// </summary>
+    public string? FileName { get; init; }
 }

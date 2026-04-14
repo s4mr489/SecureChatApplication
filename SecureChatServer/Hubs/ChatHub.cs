@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.SignalR;
+using SecureChatServer.Data.Entities;
 using SecureChatServer.Data.Repositories;
 using SecureChatServer.Models;
 using SecureChatServer.Security;
@@ -21,8 +22,11 @@ namespace SecureChatServer.Hubs;
 /// </summary>
 public sealed class ChatHub : Hub
 {
-    private const int MaxCipherBytes = 16 * 1024;
+    // Text messages: 16 KB; image/file payloads: up to 8 MB (base64-encoded).
+    private const int MaxTextCipherBytes = 16 * 1024;
+    private const int MaxMediaCipherBytes = 8 * 1024 * 1024;
     private const int MaxPublicKeyBytes = 1024;
+    private const int MaxFileNameLength = 260;
 
     private readonly IUserRepository _userRepository;
     private readonly IMessageRepository _messageRepository;
@@ -42,7 +46,85 @@ public sealed class ChatHub : Hub
     }
 
     /// <summary>
-    /// Called when a user joins the chat with their username.
+    /// Registers a new account and joins the chat on success.
+    /// Fires "JoinConfirmed" on success or "Error" on failure.
+    /// </summary>
+    public async Task Register(string username, string password)
+    {
+        var ipAddress = GetIpAddress();
+
+        if (!_rateLimiter.IsAllowed("register-ip", ipAddress, 5, TimeSpan.FromMinutes(5)))
+        {
+            _attackDetection.LogEvent("Register", username, ipAddress, false, "Registration rate limit exceeded");
+            await Clients.Caller.SendAsync("Error", "Too many registration attempts. Please try again later.");
+            return;
+        }
+
+        if (!ValidateCredentials(username, password, out var credError))
+        {
+            _attackDetection.LogEvent("Register", username, ipAddress, false, credError);
+            await Clients.Caller.SendAsync("Error", credError);
+            return;
+        }
+
+        try
+        {
+            var user = await _userRepository.RegisterUserAsync(username, password, Context.ConnectionId);
+            _attackDetection.LogEvent("Register", username, ipAddress, true, "User registered successfully");
+            await HandleSuccessfulJoinAsync(user, username);
+        }
+        catch (InvalidOperationException)
+        {
+            _attackDetection.LogEvent("Register", username, ipAddress, false, "Username already taken");
+            await Clients.Caller.SendAsync("Error", "Username is already taken. Please choose another.");
+        }
+    }
+
+    /// <summary>
+    /// Authenticates an existing account and joins the chat on success.
+    /// Fires "JoinConfirmed" on success or "Error" on failure.
+    /// </summary>
+    public async Task Login(string username, string password)
+    {
+        var ipAddress = GetIpAddress();
+
+        if (!_rateLimiter.IsAllowed("login-ip", ipAddress, 10, TimeSpan.FromMinutes(1)) ||
+            !_rateLimiter.IsAllowed("login-user", username, 8, TimeSpan.FromMinutes(1)))
+        {
+            _attackDetection.LogEvent("Login", username, ipAddress, false, "Login rate limit exceeded");
+            await Clients.Caller.SendAsync("Error", "Too many login attempts. Please wait and try again.");
+            return;
+        }
+
+        if (!ValidateCredentials(username, password, out var credError))
+        {
+            _attackDetection.LogEvent("Login", username, ipAddress, false, credError);
+            await Clients.Caller.SendAsync("Error", credError);
+            return;
+        }
+
+        if (await _userRepository.IsUsernameTakenAsync(username))
+        {
+            _attackDetection.LogEvent("Login", username, ipAddress, false, "User already online");
+            await Clients.Caller.SendAsync("Error", "This account is already logged in from another session.");
+            return;
+        }
+
+        var user = await _userRepository.ValidateAndJoinAsync(username, password, Context.ConnectionId);
+        if (user == null)
+        {
+            _attackDetection.LogEvent("Login", username, ipAddress, false, "Invalid credentials");
+            // Use a generic message to avoid username enumeration
+            await Clients.Caller.SendAsync("Error", "Invalid username or password.");
+            return;
+        }
+
+        _attackDetection.LogEvent("Login", username, ipAddress, true, "User logged in successfully");
+        await HandleSuccessfulJoinAsync(user, username);
+    }
+
+    /// <summary>
+    /// Called when a user joins the chat with their username (legacy, password-less).
     /// </summary>
     /// <param name="username">The display name for the user.</param>
     public async Task JoinChat(string username)
@@ -52,7 +134,8 @@ public sealed class ChatHub : Hub
         if (!_rateLimiter.IsAllowed("join-ip", ipAddress, 8, TimeSpan.FromMinutes(1)) ||
             !_rateLimiter.IsAllowed("join-user", username, 5, TimeSpan.FromMinutes(1)))
         {
-            _attackDetection.LogEvent("JoinChat", username, ipAddress, false, "Rate limit exceeded");
+            _attackDetection.LogEvent("JoinChat", username, ipAddress, false, "Rate limit exceeded")
+;
             await Clients.Caller.SendAsync("Error", "Join rate limit exceeded. Please retry later.");
             return;
         }
@@ -78,33 +161,7 @@ public sealed class ChatHub : Hub
             var user = await _userRepository.CreateOrUpdateOnJoinAsync(username, Context.ConnectionId);
             _attackDetection.LogEvent("JoinChat", username, ipAddress, true, "User joined successfully");
 
-            // Notify all clients about the new user
-            await Clients.All.SendAsync("UserJoined", username);
-
-            // Send current online user list to the new user
-            var userList = await _userRepository.GetOnlineUsernamesAsync();
-            await Clients.Caller.SendAsync("UserList", userList);
-
-            // Confirm successful join
-            await Clients.Caller.SendAsync("JoinConfirmed", username);
-
-            // Deliver any undelivered messages (offline message support)
-            var undeliveredMessages = await _messageRepository.GetUndeliveredMessagesAsync(user.Id);
-            foreach (var msg in undeliveredMessages)
-            {
-                await Clients.Caller.SendAsync("EncryptedMessageReceived", new EncryptedMessage
-                {
-                    MessageId = msg.MessageId,
-                    SenderUsername = msg.Sender.Username,
-                    RecipientUsername = username,
-                    Ciphertext = msg.Ciphertext,
-                    Nonce = msg.Nonce,
-                    Tag = msg.Tag,
-                    Timestamp = msg.Timestamp
-                });
-
-                await _messageRepository.MarkAsDeliveredAsync(msg.MessageId);
-            }
+            await HandleSuccessfulJoinAsync(user, username);
         }
         catch (InvalidOperationException ex)
         {
@@ -182,7 +239,9 @@ public sealed class ChatHub : Hub
                 message.Ciphertext,
                 message.Nonce,
                 message.Tag,
-                message.Timestamp);
+                message.Timestamp,
+                message.MessageType,
+                message.FileName);
 
             // If recipient is online, relay the message immediately
             if (recipient.IsOnline && recipient.ConnectionId != null)
@@ -276,7 +335,9 @@ public sealed class ChatHub : Hub
                 Ciphertext = m.Ciphertext,
                 Nonce = m.Nonce,
                 Tag = m.Tag,
-                Timestamp = m.Timestamp
+                Timestamp = m.Timestamp,
+                MessageType = m.MessageType,
+                FileName = m.FileName
             })
             .ToList();
 
@@ -292,42 +353,57 @@ public sealed class ChatHub : Hub
         await Clients.Caller.SendAsync("UserList", userList);
     }
 
-    private async Task HandleKeyExchangeAsync(KeyExchangeMessage keyExchange, string clientEventName, string operationName)
+    // ── private helpers ────────────────────────────────────────────────────────
+
+    private async Task HandleSuccessfulJoinAsync(UserEntity user, string username)
     {
-        var ipAddress = GetIpAddress();
+        // Notify all clients about the new user
+        await Clients.All.SendAsync("UserJoined", username);
 
-        if (!_rateLimiter.IsAllowed("keyx-user", keyExchange.SenderUsername, 8, TimeSpan.FromSeconds(10)))
+        // Send current online user list to the new user
+        var userList = await _userRepository.GetOnlineUsernamesAsync();
+        await Clients.Caller.SendAsync("UserList", userList);
+
+        // Confirm successful join
+        await Clients.Caller.SendAsync("JoinConfirmed", username);
+
+        // Deliver any undelivered messages (offline message support)
+        var undeliveredMessages = await _messageRepository.GetUndeliveredMessagesAsync(user.Id);
+        foreach (var msg in undeliveredMessages)
         {
-            _attackDetection.LogEvent(operationName, keyExchange.SenderUsername, ipAddress, false, "Key exchange rate exceeded");
-            await Clients.Caller.SendAsync("Error", "Key exchange rate exceeded.");
-            return;
+            await Clients.Caller.SendAsync("EncryptedMessageReceived", new EncryptedMessage
+            {
+                MessageId = msg.MessageId,
+                SenderUsername = msg.Sender.Username,
+                RecipientUsername = username,
+                Ciphertext = msg.Ciphertext,
+                Nonce = msg.Nonce,
+                Tag = msg.Tag,
+                Timestamp = msg.Timestamp,
+                MessageType = msg.MessageType,
+                FileName = msg.FileName
+            });
+
+            await _messageRepository.MarkAsDeliveredAsync(msg.MessageId);
+        }
+    }
+
+    private static bool ValidateCredentials(string username, string password, out string error)
+    {
+        if (string.IsNullOrWhiteSpace(username) || username.Length is < 2 or > 20)
+        {
+            error = "Username must be between 2 and 20 characters.";
+            return false;
         }
 
-        if (!ValidateKeyExchangeMessage(keyExchange, out var validationError))
+        if (string.IsNullOrWhiteSpace(password) || password.Length < 6)
         {
-            _attackDetection.LogEvent(operationName, keyExchange.SenderUsername, ipAddress, false, validationError);
-            await Clients.Caller.SendAsync("Error", validationError);
-            return;
+            error = "Password must be at least 6 characters.";
+            return false;
         }
 
-        var connectedUser = await _userRepository.GetByConnectionIdAsync(Context.ConnectionId);
-        if (connectedUser == null || !string.Equals(connectedUser.Username, keyExchange.SenderUsername, StringComparison.Ordinal))
-        {
-            _attackDetection.LogEvent(operationName, keyExchange.SenderUsername, ipAddress, false, "Sender identity mismatch");
-            await Clients.Caller.SendAsync("Error", "Sender identity mismatch.");
-            return;
-        }
-
-        var connectionId = await _userRepository.GetConnectionIdAsync(keyExchange.RecipientUsername);
-        if (connectionId == null)
-        {
-            _attackDetection.LogEvent(operationName, keyExchange.SenderUsername, ipAddress, false, "Recipient offline");
-            await Clients.Caller.SendAsync("Error", $"User '{keyExchange.RecipientUsername}' is not online.");
-            return;
-        }
-
-        _attackDetection.LogEvent(operationName, keyExchange.SenderUsername, ipAddress, true, "Key exchange relayed");
-        await Clients.Client(connectionId).SendAsync(clientEventName, keyExchange);
+        error = string.Empty;
+        return true;
     }
 
     private static bool ValidateEncryptedMessage(EncryptedMessage message, out string error)
@@ -343,7 +419,9 @@ public sealed class ChatHub : Hub
             return false;
         }
 
-        if (!TryDecodeBase64(message.Ciphertext, out var cipherBytes) || cipherBytes.Length > MaxCipherBytes)
+        // Media payloads are larger than text; select the limit based on message type.
+        var maxCipher = message.MessageType == 0 ? MaxTextCipherBytes : MaxMediaCipherBytes;
+        if (!TryDecodeBase64(message.Ciphertext, out var cipherBytes) || cipherBytes.Length > maxCipher)
         {
             error = "Invalid or oversized ciphertext.";
             return false;
@@ -358,6 +436,12 @@ public sealed class ChatHub : Hub
         if (!TryDecodeBase64(message.Tag, out var tagBytes) || tagBytes.Length != 16)
         {
             error = "Invalid authentication tag format.";
+            return false;
+        }
+
+        if (message.FileName != null && message.FileName.Length > MaxFileNameLength)
+        {
+            error = "File name is too long.";
             return false;
         }
 
@@ -417,5 +501,43 @@ public sealed class ChatHub : Hub
     private string GetIpAddress()
     {
         return Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    }
+
+    private async Task HandleKeyExchangeAsync(KeyExchangeMessage keyExchange, string clientEventName, string operationName)
+    {
+        var ipAddress = GetIpAddress();
+
+        if (!_rateLimiter.IsAllowed("keyx-user", keyExchange.SenderUsername, 8, TimeSpan.FromSeconds(10)))
+        {
+            _attackDetection.LogEvent(operationName, keyExchange.SenderUsername, ipAddress, false, "Key exchange rate exceeded");
+            await Clients.Caller.SendAsync("Error", "Key exchange rate exceeded.");
+            return;
+        }
+
+        if (!ValidateKeyExchangeMessage(keyExchange, out var validationError))
+        {
+            _attackDetection.LogEvent(operationName, keyExchange.SenderUsername, ipAddress, false, validationError);
+            await Clients.Caller.SendAsync("Error", validationError);
+            return;
+        }
+
+        var connectedUser = await _userRepository.GetByConnectionIdAsync(Context.ConnectionId);
+        if (connectedUser == null || !string.Equals(connectedUser.Username, keyExchange.SenderUsername, StringComparison.Ordinal))
+        {
+            _attackDetection.LogEvent(operationName, keyExchange.SenderUsername, ipAddress, false, "Sender identity mismatch");
+            await Clients.Caller.SendAsync("Error", "Sender identity mismatch.");
+            return;
+        }
+
+        var connectionId = await _userRepository.GetConnectionIdAsync(keyExchange.RecipientUsername);
+        if (connectionId == null)
+        {
+            _attackDetection.LogEvent(operationName, keyExchange.SenderUsername, ipAddress, false, "Recipient offline");
+            await Clients.Caller.SendAsync("Error", $"User '{keyExchange.RecipientUsername}' is not online.");
+            return;
+        }
+
+        _attackDetection.LogEvent(operationName, keyExchange.SenderUsername, ipAddress, true, "Key exchange relayed");
+        await Clients.Client(connectionId).SendAsync(clientEventName, keyExchange);
     }
 }

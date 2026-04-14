@@ -78,6 +78,53 @@ public sealed class CryptoService
             throw new ArgumentException($"Key must be exactly {KeySize} bytes.", nameof(key));
         }
     }
+
+    /// <summary>
+    /// Encrypts raw bytes with AES-GCM using the supplied key.
+    /// </summary>
+    public (string Ciphertext, string Nonce, string Tag) EncryptBytes(byte[] data, byte[] key)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        ValidateKey(key);
+
+        var nonce = RandomNumberGenerator.GetBytes(NonceSize);
+        var ciphertext = new byte[data.Length];
+        var tag = new byte[TagSize];
+
+        using var aesGcm = new AesGcm(key, TagSize);
+        aesGcm.Encrypt(nonce, data, ciphertext, tag);
+
+        return (
+            Ciphertext: Convert.ToBase64String(ciphertext),
+            Nonce: Convert.ToBase64String(nonce),
+            Tag: Convert.ToBase64String(tag));
+    }
+
+    /// <summary>
+    /// Decrypts AES-GCM ciphertext back to raw bytes.
+    /// </summary>
+    public byte[] DecryptBytes(string ciphertextBase64, string nonceBase64, string tagBase64, byte[] key)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(ciphertextBase64);
+        ArgumentException.ThrowIfNullOrWhiteSpace(nonceBase64);
+        ArgumentException.ThrowIfNullOrWhiteSpace(tagBase64);
+        ValidateKey(key);
+
+        var ciphertext = Convert.FromBase64String(ciphertextBase64);
+        var nonce = Convert.FromBase64String(nonceBase64);
+        var tag = Convert.FromBase64String(tagBase64);
+
+        if (nonce.Length != NonceSize)
+            throw new ArgumentException("Nonce must be 12 bytes for AES-GCM.", nameof(nonceBase64));
+
+        if (tag.Length != TagSize)
+            throw new ArgumentException("Tag must be 16 bytes for AES-GCM.", nameof(tagBase64));
+
+        var plaintext = new byte[ciphertext.Length];
+        using var aesGcm = new AesGcm(key, TagSize);
+        aesGcm.Decrypt(nonce, ciphertext, tag, plaintext);
+        return plaintext;
+    }
 }
 
 public sealed class AesEncryptionService

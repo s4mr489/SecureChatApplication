@@ -23,7 +23,7 @@ builder.Services.AddSignalR(options =>
 {
     // Configure SignalR options for security and performance
     options.EnableDetailedErrors = builder.Environment.IsDevelopment();
-    options.MaximumReceiveMessageSize = 65536; // 64KB max message size
+    options.MaximumReceiveMessageSize = 10 * 1024 * 1024; // 10 MB — supports encrypted media payloads
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);
     options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
 });

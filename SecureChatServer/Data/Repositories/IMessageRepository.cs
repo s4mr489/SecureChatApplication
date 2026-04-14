@@ -18,7 +18,9 @@ public interface IMessageRepository
         string cipherText,
         string nonce,
         string tag,
-        DateTime timestamp);
+        DateTime timestamp,
+        int messageType = 0,
+        string? fileName = null);
 
     /// <summary>
     /// Marks a message as delivered.
