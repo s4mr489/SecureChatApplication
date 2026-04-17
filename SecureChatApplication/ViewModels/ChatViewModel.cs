@@ -16,6 +16,7 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
     private readonly SignalRChatService _chatService;
     private readonly KeyExchangeService _keyExchangeService;
     private readonly CryptoService _cryptoService;
+    private readonly ChatHistoryService _chatHistoryService;
     private readonly Dictionary<string, ObservableCollection<ChatMessage>> _messagesByUser = new();
     private readonly ConcurrentDictionary<string, string> _trustedFingerprints = new(StringComparer.Ordinal);
 
@@ -27,11 +28,13 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
     public ChatViewModel(
         SignalRChatService chatService,
         KeyExchangeService keyExchangeService,
-        CryptoService cryptoService)
+        CryptoService cryptoService,
+        ChatHistoryService chatHistoryService)
     {
         _chatService = chatService;
         _keyExchangeService = keyExchangeService;
         _cryptoService = cryptoService;
+        _chatHistoryService = chatHistoryService;
 
         SendMessageCommand = new AsyncRelayCommand(SendMessageAsync, CanSendMessageCheck);
         SendMediaCommand = new AsyncRelayCommand(SendMediaAsync, CanSendMediaCheck);
@@ -125,11 +128,36 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
     public void Initialize(string username)
     {
         CurrentUsername = username;
+        LoadKnownPartners();
+    }
+
+    /// <summary>
+    /// Loads previously chatted partners from local history as offline entries.
+    /// </summary>
+    private void LoadKnownPartners()
+    {
+        var known = _chatHistoryService.GetKnownPartners(CurrentUsername);
+        foreach (var partner in known)
+        {
+            if (partner != CurrentUsername && !OnlineUsers.Any(u => u.Username == partner))
+            {
+                OnlineUsers.Add(new ChatPartner { Username = partner, IsOnline = false });
+            }
+        }
     }
 
     private async void OnSelectedUserChanged()
     {
         if (_selectedUser == null)
+        {
+            return;
+        }
+
+        // Load local chat history when selecting a user
+        LoadLocalHistory(_selectedUser.Username);
+
+        // Don't initiate key exchange with offline users
+        if (!_selectedUser.IsOnline)
         {
             return;
         }
@@ -147,6 +175,31 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
         {
             System.Diagnostics.Debug.WriteLine($"Key exchange initiation failed: {ex.Message}");
         }
+    }
+
+    private void LoadLocalHistory(string partnerUsername)
+    {
+        if (!_messagesByUser.TryGetValue(partnerUsername, out var messages))
+        {
+            messages = new ObservableCollection<ChatMessage>();
+            _messagesByUser[partnerUsername] = messages;
+        }
+
+        var history = _chatHistoryService.LoadAsChatMessages(CurrentUsername, partnerUsername);
+        if (history.Count == 0) return;
+
+        // Build a set of existing message IDs to avoid duplicates
+        var existingIds = new HashSet<string>(messages.Select(m => m.MessageId));
+        var newHistory = history.Where(h => !existingIds.Contains(h.MessageId)).ToList();
+        if (newHistory.Count == 0) return;
+
+        // Insert history messages at the beginning, preserving chronological order
+        for (var i = 0; i < newHistory.Count; i++)
+        {
+            messages.Insert(i, newHistory[i]);
+        }
+
+        OnPropertyChanged(nameof(Messages));
     }
 
     private async Task InitiateKeyExchangeAsync(string partnerUsername)
@@ -326,7 +379,7 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                 Timestamp = timestamp
             };
 
-            Messages.Add(new ChatMessage
+            var chatMsg = new ChatMessage
             {
                 MessageId = messageId,
                 SenderUsername = CurrentUsername,
@@ -334,7 +387,9 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                 Timestamp = timestamp,
                 IsOwnMessage = true,
                 IsDelivered = false
-            });
+            };
+            Messages.Add(chatMsg);
+            _chatHistoryService.SaveMessage(CurrentUsername, _selectedUser.Username, chatMsg);
 
             MessageText = string.Empty;
             await _chatService.SendEncryptedMessageAsync(encryptedMessage);
@@ -402,7 +457,7 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                 FileName = fileName
             };
 
-            Messages.Add(new ChatMessage
+            var mediaMsg = new ChatMessage
             {
                 MessageId = messageId,
                 SenderUsername = CurrentUsername,
@@ -413,7 +468,9 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                 MessageType = messageType,
                 FileName = fileName,
                 MediaBytes = fileBytes
-            });
+            };
+            Messages.Add(mediaMsg);
+            _chatHistoryService.SaveMessage(CurrentUsername, _selectedUser.Username, mediaMsg);
 
             await _chatService.SendEncryptedMessageAsync(encryptedMessage);
         }
@@ -460,7 +517,7 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                     _messagesByUser[senderUsername] = messages;
                 }
 
-                messages.Add(new ChatMessage
+                var receivedMsg = new ChatMessage
                 {
                     MessageId = encryptedMessage.MessageId,
                     SenderUsername = senderUsername,
@@ -471,7 +528,9 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                     MessageType = encryptedMessage.MessageType,
                     FileName = encryptedMessage.FileName,
                     MediaBytes = mediaBytes
-                });
+                };
+                messages.Add(receivedMsg);
+                _chatHistoryService.SaveMessage(CurrentUsername, senderUsername, receivedMsg);
 
                 if (_selectedUser?.Username == senderUsername)
                 {
@@ -509,9 +568,14 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                 return;
             }
 
-            if (!OnlineUsers.Any(u => u.Username == username))
+            var existing = OnlineUsers.FirstOrDefault(u => u.Username == username);
+            if (existing != null)
             {
-                OnlineUsers.Add(new ChatPartner { Username = username });
+                existing.IsOnline = true;
+            }
+            else
+            {
+                OnlineUsers.Add(new ChatPartner { Username = username, IsOnline = true });
             }
         });
     }
@@ -526,20 +590,24 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                 return;
             }
 
-            OnlineUsers.Remove(user);
+            // Mark as offline but keep in the list so chat history is still accessible
+            user.IsOnline = false;
 
             if (user.SharedKey != null)
             {
                 CryptographicOperations.ZeroMemory(user.SharedKey);
+                user.SharedKey = null;
             }
 
+            user.IsKeyExchangeComplete = false;
+            user.IsKeyExchangeInitiated = false;
             _trustedFingerprints.TryRemove(username, out _);
             _keyExchangeService.RemoveKeyPair(username);
 
-            if (_selectedUser?.Username == username)
-            {
-                SelectedUser = null;
-            }
+            OnPropertyChanged(nameof(CanSendMessage));
+            OnPropertyChanged(nameof(CanSendMedia));
+            SendMessageCommand.RaiseCanExecuteChanged();
+            SendMediaCommand.RaiseCanExecuteChanged();
         });
     }
 
@@ -547,12 +615,20 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
     {
         Application.Current.Dispatcher.Invoke(() =>
         {
-            OnlineUsers.Clear();
-            foreach (var username in usernames)
+            var onlineSet = new HashSet<string>(usernames.Where(u => u != CurrentUsername));
+
+            // Mark all existing users as offline first
+            foreach (var user in OnlineUsers)
             {
-                if (username != CurrentUsername)
+                user.IsOnline = onlineSet.Contains(user.Username);
+            }
+
+            // Add any new online users not already in the list
+            foreach (var username in onlineSet)
+            {
+                if (!OnlineUsers.Any(u => u.Username == username))
                 {
-                    OnlineUsers.Add(new ChatPartner { Username = username });
+                    OnlineUsers.Add(new ChatPartner { Username = username, IsOnline = true });
                 }
             }
         });
@@ -642,6 +718,9 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
 
         _keyExchangeService.ClearAllKeys();
         _trustedFingerprints.Clear();
+        _messagesByUser.Clear();
+        OnlineUsers.Clear();
+        _selectedUser = null;
 
         await _chatService.DisconnectAsync();
         OnDisconnectRequested?.Invoke();

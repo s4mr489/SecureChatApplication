@@ -292,7 +292,7 @@
                 
                 <!-- Search/Filter -->
                 <Border Grid.Row="1" Padding="12,12">
-                    <TextBlock Text="Online Users" 
+                    <TextBlock Text="Conversations" 
                                Foreground="#6B6B8A" 
                                FontSize="12" 
                                FontWeight="SemiBold"/>
@@ -316,19 +316,35 @@
                                 </Grid.ColumnDefinitions>
                                 
                                 <!-- User Avatar -->
-                                <Border Grid.Column="0" 
-                                        Width="36" Height="36" 
-                                        CornerRadius="18" 
-                                        Background="#3D3D5C"
-                                        Margin="0,0,12,0">
-                                    <TextBlock Text="{Binding Username, Converter={StaticResource FirstLetterConverter}}" 
-                                               Foreground="#FFFFFF"
-                                               FontSize="14"
-                                               FontWeight="SemiBold"
-                                               HorizontalAlignment="Center"
-                                               VerticalAlignment="Center"/>
-                                </Border>
-                                
+                                <Grid Grid.Column="0" Width="36" Height="36" Margin="0,0,12,0">
+                                    <Border Width="36" Height="36" 
+                                            CornerRadius="18" 
+                                            Background="#3D3D5C">
+                                        <TextBlock Text="{Binding Username, Converter={StaticResource FirstLetterConverter}}" 
+                                                   Foreground="#FFFFFF"
+                                                   FontSize="14"
+                                                   FontWeight="SemiBold"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"/>
+                                    </Border>
+                                    <!-- Online/Offline indicator -->
+                                    <Ellipse Width="10" Height="10"
+                                             HorizontalAlignment="Right"
+                                             VerticalAlignment="Bottom"
+                                             Stroke="#252536" StrokeThickness="2">
+                                        <Ellipse.Style>
+                                            <Style TargetType="Ellipse">
+                                                <Setter Property="Fill" Value="#6B6B8A"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsOnline}" Value="True">
+                                                        <Setter Property="Fill" Value="#10B981"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Ellipse.Style>
+                                    </Ellipse>
+                                </Grid>
+
                                 <!-- Username -->
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock Text="{Binding Username}" 
@@ -336,10 +352,15 @@
                                     <TextBlock FontSize="10" Foreground="#6B6B8A">
                                         <TextBlock.Style>
                                             <Style TargetType="TextBlock">
-                                                <Setter Property="Text" Value="Click to start secure chat"/>
+                                                <Setter Property="Text" Value="Offline"/>
+                                                <Setter Property="Foreground" Value="#6B6B8A"/>
                                                 <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsOnline}" Value="True">
+                                                        <Setter Property="Text" Value="Online"/>
+                                                        <Setter Property="Foreground" Value="#10B981"/>
+                                                    </DataTrigger>
                                                     <DataTrigger Binding="{Binding IsKeyExchangeComplete}" Value="True">
-                                                        <Setter Property="Text" Value="[Encrypted]"/>
+                                                        <Setter Property="Text" Value="🔒 Encrypted"/>
                                                         <Setter Property="Foreground" Value="#10B981"/>
                                                     </DataTrigger>
                                                 </Style.Triggers>
@@ -348,7 +369,7 @@
                                     </TextBlock>
                                 </StackPanel>
                                 
-                                <!-- Encryption Status -->
+                                <!-- Online Status Dot -->
                                 <Ellipse Grid.Column="2" 
                                          Width="8" Height="8" 
                                          VerticalAlignment="Center">
@@ -356,7 +377,7 @@
                                         <Style TargetType="Ellipse">
                                             <Setter Property="Fill" Value="#6B6B8A"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsKeyExchangeComplete}" Value="True">
+                                                <DataTrigger Binding="{Binding IsOnline}" Value="True">
                                                     <Setter Property="Fill" Value="#10B981"/>
                                                 </DataTrigger>
                                             </Style.Triggers>

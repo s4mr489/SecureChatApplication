@@ -1,10 +1,14 @@
+using System.ComponentModel;
+
 namespace SecureChatApplication.Models;
 
 /// <summary>
 /// Represents a chat partner with whom we have established a secure channel.
 /// </summary>
-public sealed class ChatPartner
+public sealed class ChatPartner : INotifyPropertyChanged
 {
+    public event PropertyChangedEventHandler? PropertyChanged;
+
     /// <summary>
     /// The username of the chat partner.
     /// </summary>
@@ -29,4 +33,22 @@ public sealed class ChatPartner
     /// Verified fingerprint for the partner public key.
     /// </summary>
     public string? PublicKeyFingerprint { get; set; }
+
+    private bool _isOnline;
+
+    /// <summary>
+    /// Whether this partner is currently online.
+    /// </summary>
+    public bool IsOnline
+    {
+        get => _isOnline;
+        set
+        {
+            if (_isOnline != value)
+            {
+                _isOnline = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsOnline)));
+            }
+        }
+    }
 }
