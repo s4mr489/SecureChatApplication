@@ -6,12 +6,13 @@ namespace SecureChatApplication;
 
 /// <summary>
 /// Interaction logic for MainWindow.xaml
-/// Main window that handles navigation between Login and Chat views.
+/// Main window that handles navigation between Login, Chat, and Security Dashboard views.
 /// </summary>
 public partial class MainWindow : Window
 {
     private readonly LoginViewModel _loginViewModel;
     private readonly ChatViewModel _chatViewModel;
+    private readonly SecurityDashboardViewModel _securityDashboardViewModel;
 
     public MainWindow()
     {
@@ -20,14 +21,18 @@ public partial class MainWindow : Window
         // Get view models from DI container
         _loginViewModel = App.ServiceProvider.GetRequiredService<LoginViewModel>();
         _chatViewModel = App.ServiceProvider.GetRequiredService<ChatViewModel>();
+        _securityDashboardViewModel = App.ServiceProvider.GetRequiredService<SecurityDashboardViewModel>();
 
         // Set data contexts
         LoginView.DataContext = _loginViewModel;
         ChatView.DataContext = _chatViewModel;
+        SecurityDashboardView.DataContext = _securityDashboardViewModel;
 
         // Subscribe to navigation events
         _loginViewModel.OnLoginSuccess += OnLoginSuccess;
         _chatViewModel.OnDisconnectRequested += OnDisconnectRequested;
+        _chatViewModel.OnSecurityDashboardRequested += OnSecurityDashboardRequested;
+        SecurityDashboardView.BackToChatRequested += OnBackToChatRequested;
     }
 
     /// <summary>
@@ -43,6 +48,7 @@ public partial class MainWindow : Window
             // Navigate to chat view
             LoginView.Visibility = Visibility.Collapsed;
             ChatView.Visibility = Visibility.Visible;
+            SecurityDashboardView.Visibility = Visibility.Collapsed;
 
             Title = $"Secure Chat - {username} (End-to-End Encrypted)";
         });
@@ -57,6 +63,7 @@ public partial class MainWindow : Window
         {
             // Navigate back to login view
             ChatView.Visibility = Visibility.Collapsed;
+            SecurityDashboardView.Visibility = Visibility.Collapsed;
             LoginView.Visibility = Visibility.Visible;
 
             // Reset login status
@@ -67,11 +74,41 @@ public partial class MainWindow : Window
         });
     }
 
+    /// <summary>
+    /// Navigates from chat to the security dashboard.
+    /// </summary>
+    private void OnSecurityDashboardRequested()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            ChatView.Visibility = Visibility.Collapsed;
+            SecurityDashboardView.Visibility = Visibility.Visible;
+
+            Title = $"Secure Chat - Security Dashboard";
+        });
+    }
+
+    /// <summary>
+    /// Navigates from the security dashboard back to the chat.
+    /// </summary>
+    private void OnBackToChatRequested()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            SecurityDashboardView.Visibility = Visibility.Collapsed;
+            ChatView.Visibility = Visibility.Visible;
+
+            Title = $"Secure Chat - {_chatViewModel.CurrentUsername} (End-to-End Encrypted)";
+        });
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         // Cleanup subscriptions
         _loginViewModel.OnLoginSuccess -= OnLoginSuccess;
         _chatViewModel.OnDisconnectRequested -= OnDisconnectRequested;
+        _chatViewModel.OnSecurityDashboardRequested -= OnSecurityDashboardRequested;
+        SecurityDashboardView.BackToChatRequested -= OnBackToChatRequested;
 
         // Cleanup view models
         _loginViewModel.Cleanup();

@@ -370,28 +370,53 @@
                 
                 <!-- Disconnect Button -->
                 <Border Grid.Row="3" Padding="12" BorderBrush="#3D3D5C" BorderThickness="0,1,0,0">
-                    <Button Content="Disconnect" 
-                            Command="{Binding DisconnectCommand}"
-                            Background="#EF4444"
-                            Foreground="#FFFFFF"
-                            Padding="12,8"
-                            Cursor="Hand">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="border" 
-                                        Background="{TemplateBinding Background}"
-                                        CornerRadius="8"
-                                        Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="border" Property="Background" Value="#F87171"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
+                    <StackPanel>
+                        <Button Content="🛡️ Security Dashboard"
+                                Command="{Binding OpenSecurityDashboardCommand}"
+                                Background="#3D3D5C"
+                                Foreground="#FFFFFF"
+                                Padding="12,8"
+                                Cursor="Hand"
+                                Margin="0,0,0,8">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="border"
+                                            Background="{TemplateBinding Background}"
+                                            CornerRadius="8"
+                                            Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter HorizontalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="border" Property="Background" Value="#4B4B6B"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                        <Button Content="Disconnect" 
+                                Command="{Binding DisconnectCommand}"
+                                Background="#EF4444"
+                                Foreground="#FFFFFF"
+                                Padding="12,8"
+                                Cursor="Hand">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="border" 
+                                            Background="{TemplateBinding Background}"
+                                            CornerRadius="8"
+                                            Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter HorizontalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="border" Property="Background" Value="#F87171"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </StackPanel>
                 </Border>
             </Grid>
         </Border>

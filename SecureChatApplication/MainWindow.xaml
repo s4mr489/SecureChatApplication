@@ -10,14 +10,18 @@
         MinHeight="500" MinWidth="700"
         WindowStartupLocation="CenterScreen"
         Background="#1E1E2E">
-    
+
     <Grid>
         <!-- Login View (shown initially) -->
         <views:LoginView x:Name="LoginView" 
                          Visibility="Visible"/>
-        
+
         <!-- Chat View (shown after login) -->
         <views:ChatView x:Name="ChatView" 
                         Visibility="Collapsed"/>
+
+        <!-- Security Dashboard View -->
+        <views:SecurityDashboardView x:Name="SecurityDashboardView"
+                                     Visibility="Collapsed"/>
     </Grid>
 </Window>

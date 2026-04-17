@@ -10,6 +10,7 @@ namespace SecureChatApplication.Services;
 public sealed class SecurityDashboardService : ISecurityDashboardService
 {
     private readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private string _baseUrl = string.Empty;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -19,25 +20,26 @@ public sealed class SecurityDashboardService : ISecurityDashboardService
     public void SetBaseUrl(string serverBaseUrl)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(serverBaseUrl);
-        var trimmed = serverBaseUrl.TrimEnd('/') + "/";
-        _httpClient.BaseAddress = new Uri(trimmed);
+        _baseUrl = serverBaseUrl.TrimEnd('/') + "/";
     }
+
+    private string Url(string relative) => _baseUrl + relative;
 
     public async Task<List<SecurityLogEntry>> GetLogsAsync(CancellationToken ct = default)
     {
-        var json = await _httpClient.GetStringAsync("security/logs", ct);
+        var json = await _httpClient.GetStringAsync(Url("security/logs"), ct);
         return JsonSerializer.Deserialize<List<SecurityLogEntry>>(json, JsonOptions) ?? [];
     }
 
     public async Task<List<SecurityAlertEntry>> GetAlertsAsync(CancellationToken ct = default)
     {
-        var json = await _httpClient.GetStringAsync("security/alerts", ct);
+        var json = await _httpClient.GetStringAsync(Url("security/alerts"), ct);
         return JsonSerializer.Deserialize<List<SecurityAlertEntry>>(json, JsonOptions) ?? [];
     }
 
     public async Task<DashboardSummary> GetDashboardAsync(CancellationToken ct = default)
     {
-        var json = await _httpClient.GetStringAsync("security/dashboard", ct);
+        var json = await _httpClient.GetStringAsync(Url("security/dashboard"), ct);
         return JsonSerializer.Deserialize<DashboardSummary>(json, JsonOptions) ?? new DashboardSummary();
     }
 
@@ -45,7 +47,7 @@ public sealed class SecurityDashboardService : ISecurityDashboardService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(attackType);
 
-        var response = await _httpClient.PostAsync($"security/simulate/{attackType}", content: null, ct);
+        var response = await _httpClient.PostAsync(Url($"security/simulate/{attackType}"), content: null, ct);
 
         if (!response.IsSuccessStatusCode)
         {

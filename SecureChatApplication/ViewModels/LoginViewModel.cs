@@ -154,8 +154,8 @@ public sealed class LoginViewModel : ViewModelBase
         if (IsConnecting) return false;
         if (string.IsNullOrWhiteSpace(Username) || Username.Length is < 2 or > 20) return false;
         if (string.IsNullOrWhiteSpace(ServerUrl)) return false;
-        // In register mode show a mismatch hint via PasswordHint, but don't block the button
-        // — the server uses username-based identity; password is a client-side UX field only.
+        if (string.IsNullOrWhiteSpace(_password) || _password.Length < 6) return false;
+        if (IsRegisterMode && _password != _confirmPassword) return false;
         return true;
     }
 
@@ -179,7 +179,7 @@ public sealed class LoginViewModel : ViewModelBase
         if (!CanConnect()) return;
 
         IsConnecting = true;
-        StatusMessage = IsRegisterMode ? "Creating account..." : "Connecting...";
+        StatusMessage = IsRegisterMode ? "Creating account..." : "Signing in...";
 
         try
         {
@@ -191,11 +191,16 @@ public sealed class LoginViewModel : ViewModelBase
 
             // Connect to the SignalR hub
             await _chatService.ConnectAsync(ServerUrl);
-            
-            StatusMessage = "Connected! Joining chat...";
 
-            // Join the chat with username
-            await _chatService.JoinChatAsync(Username.Trim());
+            // Authenticate and join
+            if (IsRegisterMode)
+            {
+                await _chatService.RegisterAsync(Username.Trim(), _password);
+            }
+            else
+            {
+                await _chatService.LoginAsync(Username.Trim(), _password);
+            }
         }
         catch (Exception ex)
         {
@@ -211,7 +216,7 @@ public sealed class LoginViewModel : ViewModelBase
             IsConnecting = false;
             IsConnected = true;
             StatusMessage = $"Welcome, {username}!";
-            
+
             // Notify that login was successful
             OnLoginSuccess?.Invoke(username);
         });

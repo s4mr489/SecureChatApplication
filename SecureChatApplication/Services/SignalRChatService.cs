@@ -14,6 +14,8 @@ public sealed class SignalRChatService : IAsyncDisposable
 {
     private HubConnection? _hubConnection;
     private string? _currentUsername;
+    private string? _currentPassword;
+    private bool _usedCredentialAuth;
     private bool _disposed;
 
     /// <summary>
@@ -126,10 +128,17 @@ public sealed class SignalRChatService : IAsyncDisposable
         _hubConnection.Reconnected += async (connectionId) =>
         {
             OnConnectionStateChanged?.Invoke(HubConnectionState.Connected);
-            // Re-join with current username after reconnection
+            // Re-authenticate after reconnection
             if (!string.IsNullOrEmpty(_currentUsername))
             {
-                await JoinChatAsync(_currentUsername);
+                if (_usedCredentialAuth && !string.IsNullOrEmpty(_currentPassword))
+                {
+                    await LoginAsync(_currentUsername, _currentPassword);
+                }
+                else
+                {
+                    await JoinChatAsync(_currentUsername);
+                }
             }
         };
 
@@ -198,12 +207,46 @@ public sealed class SignalRChatService : IAsyncDisposable
     }
 
     /// <summary>
+    /// Registers a new user account and joins the chat.
+    /// </summary>
+    public async Task RegisterAsync(string username, string password)
+    {
+        ThrowIfDisposed();
+        EnsureConnected();
+
+        _usedCredentialAuth = true;
+        _currentUsername = username;
+        _currentPassword = password;
+
+        await _hubConnection!.InvokeAsync("Register", username, password);
+    }
+
+    /// <summary>
+    /// Logs in using an existing user account and joins the chat.
+    /// </summary>
+    public async Task LoginAsync(string username, string password)
+    {
+        ThrowIfDisposed();
+        EnsureConnected();
+
+        _usedCredentialAuth = true;
+        _currentUsername = username;
+        _currentPassword = password;
+
+        await _hubConnection!.InvokeAsync("Login", username, password);
+    }
+
+    /// <summary>
     /// Joins the chat with the specified username.
     /// </summary>
     public async Task JoinChatAsync(string username)
     {
         ThrowIfDisposed();
         EnsureConnected();
+
+        _usedCredentialAuth = false;
+        _currentUsername = username;
+        _currentPassword = null;
 
         await _hubConnection!.InvokeAsync("JoinChat", username);
     }
@@ -276,6 +319,8 @@ public sealed class SignalRChatService : IAsyncDisposable
             _hubConnection = null;
         }
         _currentUsername = null;
+        _currentPassword = null;
+        _usedCredentialAuth = false;
         OnConnectionStateChanged?.Invoke(HubConnectionState.Disconnected);
     }
 

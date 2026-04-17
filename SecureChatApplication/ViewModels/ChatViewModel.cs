@@ -36,6 +36,7 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
         SendMessageCommand = new AsyncRelayCommand(SendMessageAsync, CanSendMessageCheck);
         SendMediaCommand = new AsyncRelayCommand(SendMediaAsync, CanSendMediaCheck);
         DisconnectCommand = new AsyncRelayCommand(DisconnectAsync);
+        OpenSecurityDashboardCommand = new RelayCommand(() => OnSecurityDashboardRequested?.Invoke());
 
         _chatService.OnUserJoined += OnUserJoined;
         _chatService.OnUserLeft += OnUserLeft;
@@ -44,6 +45,7 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
         _chatService.OnKeyExchangeCompleted += OnKeyExchangeCompleted;
         _chatService.OnEncryptedMessageReceived += OnEncryptedMessageReceived;
         _chatService.OnMessageDelivered += OnMessageDelivered;
+        _chatService.OnMessageHistoryReceived += OnMessageHistoryReceived;
         _chatService.OnError += OnError;
     }
 
@@ -114,7 +116,11 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
 
     public AsyncRelayCommand DisconnectCommand { get; }
 
+    public RelayCommand OpenSecurityDashboardCommand { get; }
+
     public event Action? OnDisconnectRequested;
+
+    public event Action? OnSecurityDashboardRequested;
 
     public void Initialize(string username)
     {
@@ -195,6 +201,9 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                     OnPropertyChanged(nameof(CanSendMedia));
                     SendMessageCommand.RaiseCanExecuteChanged();
                     SendMediaCommand.RaiseCanExecuteChanged();
+
+                    // Load message history now that we have the shared key
+                    _ = _chatService.GetMessageHistoryAsync(senderUsername);
                 }
 
                 await _chatService.RespondToKeyExchangeAsync(new KeyExchangeMessage
@@ -245,6 +254,9 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                     OnPropertyChanged(nameof(CanSendMedia));
                     SendMessageCommand.RaiseCanExecuteChanged();
                     SendMediaCommand.RaiseCanExecuteChanged();
+
+                    // Load message history now that we have the shared key
+                    _ = _chatService.GetMessageHistoryAsync(senderUsername);
                 }
             }
             catch (Exception ex)
@@ -551,6 +563,73 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
         System.Diagnostics.Debug.WriteLine($"Chat error: {message}");
     }
 
+    private void OnMessageHistoryReceived(string partnerUsername, List<EncryptedMessage> encryptedMessages)
+    {
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            var partner = OnlineUsers.FirstOrDefault(u => u.Username == partnerUsername);
+            if (partner?.SharedKey == null) return;
+
+            if (!_messagesByUser.TryGetValue(partnerUsername, out var messages))
+            {
+                messages = new ObservableCollection<ChatMessage>();
+                _messagesByUser[partnerUsername] = messages;
+            }
+
+            // Only load history if we haven't already
+            if (messages.Any(m => m.IsFromHistory)) return;
+
+            var historyMessages = new List<ChatMessage>();
+            foreach (var enc in encryptedMessages)
+            {
+                try
+                {
+                    string content;
+                    byte[]? mediaBytes = null;
+
+                    if (enc.MessageType == 0)
+                    {
+                        content = _cryptoService.Decrypt(enc.Ciphertext, enc.Nonce, enc.Tag, partner.SharedKey);
+                    }
+                    else
+                    {
+                        mediaBytes = _cryptoService.DecryptBytes(enc.Ciphertext, enc.Nonce, enc.Tag, partner.SharedKey);
+                        content = enc.FileName ?? "attachment";
+                    }
+
+                    historyMessages.Add(new ChatMessage
+                    {
+                        MessageId = enc.MessageId,
+                        SenderUsername = enc.SenderUsername,
+                        Content = content,
+                        Timestamp = enc.Timestamp,
+                        IsOwnMessage = enc.SenderUsername == CurrentUsername,
+                        IsDelivered = true,
+                        IsFromHistory = true,
+                        MessageType = enc.MessageType,
+                        FileName = enc.FileName,
+                        MediaBytes = mediaBytes
+                    });
+                }
+                catch (CryptographicException ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to decrypt history message: {ex.Message}");
+                }
+            }
+
+            // Insert history at the beginning
+            for (var i = historyMessages.Count - 1; i >= 0; i--)
+            {
+                messages.Insert(0, historyMessages[i]);
+            }
+
+            if (_selectedUser?.Username == partnerUsername)
+            {
+                OnPropertyChanged(nameof(Messages));
+            }
+        });
+    }
+
     private async Task DisconnectAsync()
     {
         foreach (var user in OnlineUsers)
@@ -582,6 +661,7 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
         _chatService.OnKeyExchangeCompleted -= OnKeyExchangeCompleted;
         _chatService.OnEncryptedMessageReceived -= OnEncryptedMessageReceived;
         _chatService.OnMessageDelivered -= OnMessageDelivered;
+        _chatService.OnMessageHistoryReceived -= OnMessageHistoryReceived;
         _chatService.OnError -= OnError;
 
         foreach (var user in OnlineUsers)
