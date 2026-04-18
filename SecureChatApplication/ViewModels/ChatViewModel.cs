@@ -17,6 +17,7 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
     private readonly KeyExchangeService _keyExchangeService;
     private readonly CryptoService _cryptoService;
     private readonly ChatHistoryService _chatHistoryService;
+    private readonly SafeBrowsingService _safeBrowsingService;
     private readonly Dictionary<string, ObservableCollection<ChatMessage>> _messagesByUser = new();
     private readonly ConcurrentDictionary<string, string> _trustedFingerprints = new(StringComparer.Ordinal);
 
@@ -29,12 +30,14 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
         SignalRChatService chatService,
         KeyExchangeService keyExchangeService,
         CryptoService cryptoService,
-        ChatHistoryService chatHistoryService)
+        ChatHistoryService chatHistoryService,
+        SafeBrowsingService safeBrowsingService)
     {
         _chatService = chatService;
         _keyExchangeService = keyExchangeService;
         _cryptoService = cryptoService;
         _chatHistoryService = chatHistoryService;
+        _safeBrowsingService = safeBrowsingService;
 
         SendMessageCommand = new AsyncRelayCommand(SendMessageAsync, CanSendMessageCheck);
         SendMediaCommand = new AsyncRelayCommand(SendMediaAsync, CanSendMediaCheck);
@@ -391,12 +394,55 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
             Messages.Add(chatMsg);
             _chatHistoryService.SaveMessage(CurrentUsername, _selectedUser.Username, chatMsg);
 
+            // Check URLs in the message for safety
+            _ = CheckAndNotifyUrlSafetyAsync(plaintext, _selectedUser.Username);
+
             MessageText = string.Empty;
             await _chatService.SendEncryptedMessageAsync(encryptedMessage);
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Failed to send message: {ex.Message}");
+        }
+    }
+
+    private async Task CheckAndNotifyUrlSafetyAsync(string text, string partnerUsername)
+    {
+        try
+        {
+            var notices = await _safeBrowsingService.CheckAllUrlsAsync(text);
+            if (notices.Count == 0) return;
+
+            await Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                if (!_messagesByUser.TryGetValue(partnerUsername, out var messages))
+                {
+                    messages = new ObservableCollection<ChatMessage>();
+                    _messagesByUser[partnerUsername] = messages;
+                }
+
+                foreach (var notice in notices)
+                {
+                    messages.Add(new ChatMessage
+                    {
+                        MessageId = Guid.NewGuid().ToString(),
+                        SenderUsername = "🔒 Safe Browsing",
+                        Content = notice,
+                        Timestamp = DateTime.UtcNow,
+                        IsOwnMessage = false,
+                        IsDelivered = true
+                    });
+                }
+
+                if (_selectedUser?.Username == partnerUsername)
+                {
+                    OnPropertyChanged(nameof(Messages));
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"URL safety check failed: {ex.Message}");
         }
     }
 
@@ -531,6 +577,12 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                 };
                 messages.Add(receivedMsg);
                 _chatHistoryService.SaveMessage(CurrentUsername, senderUsername, receivedMsg);
+
+                // Check URLs in received messages for safety
+                if (encryptedMessage.MessageType == 0)
+                {
+                    _ = CheckAndNotifyUrlSafetyAsync(content, senderUsername);
+                }
 
                 if (_selectedUser?.Username == senderUsername)
                 {

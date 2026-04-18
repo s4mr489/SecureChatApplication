@@ -43,6 +43,7 @@ public partial class App : Application
         // Register security dashboard service (singleton — holds configured HttpClient)
         services.AddSingleton<ISecurityDashboardService, SecurityDashboardService>();
         services.AddSingleton<ChatHistoryService>();
+        services.AddSingleton<SafeBrowsingService>();
 
         // Register view models (transient - new instance each time)
         services.AddTransient<LoginViewModel>();
