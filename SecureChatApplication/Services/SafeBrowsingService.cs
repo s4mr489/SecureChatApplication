@@ -5,12 +5,12 @@ using System.Text.RegularExpressions;
 namespace SecureChatApplication.Services;
 
 /// <summary>
-/// Checks URLs against Google Safe Browsing API v5.
+/// Checks URLs against Kaspersky OpenTIP API.
 /// </summary>
 public sealed partial class SafeBrowsingService : IDisposable
 {
-    private const string ApiKey = "AIzaSyAcCJtSyvCgsFPBLemz7cHY_-JvguQDQJk";
-    private const string BaseUrl = "https://safebrowsing.googleapis.com/v5/urls:search";
+    private const string ApiKey = "zsEIsWWvSKiZfWc5P28LiA==";
+    private const string BaseUrl = "https://opentip.kaspersky.com/api/v1/search/url";
 
     private readonly HttpClient _httpClient = new();
 
@@ -28,24 +28,48 @@ public sealed partial class SafeBrowsingService : IDisposable
         if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed) ||
             (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
         {
-            return "Invalid URL format";
+            return "⚠️ Invalid URL format";
         }
 
-        var baseUrl = "https://safebrowsing.googleapis.com/v5/urls:search";
-
-        var queryParams = new Dictionary<string, string>
+        try
         {
-            ["key"] = ApiKey,
-            ["urls[]"] = url
-        };
+            var requestUrl = $"{BaseUrl}?request={Uri.EscapeDataString(url)}";
 
-        var queryString = await new FormUrlEncodedContent(queryParams).ReadAsStringAsync();
-        var requestUrl = $"{baseUrl}?{queryString}";
+            using var request = new HttpRequestMessage(HttpMethod.Get, requestUrl);
+            request.Headers.Add("x-api-key", ApiKey);
 
-        using var response = await _httpClient.GetAsync(requestUrl);
-        var body = await response.Content.ReadAsStringAsync();
+            using var response = await _httpClient.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
 
-        return $"Status: {(int)response.StatusCode}\nBody: {body}";
+            if (!response.IsSuccessStatusCode)
+            {
+                System.Diagnostics.Debug.WriteLine($"Kaspersky API error: {response.StatusCode} - {body}");
+                return $"⚠️ Could not verify link safety: {url}";
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("Zone", out var zone))
+            {
+                var zoneValue = zone.GetString();
+                if (string.Equals(zoneValue, "Green", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "✅ Valid";
+                }
+                else
+                {
+                    return $"🚨 Not Valid";
+                }
+            }
+
+            return "⚠️ Could not verify";
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"URL safety check failed: {ex.Message}");
+            return $"⚠️ Could not verify link safety: {url}";
+        }
     }
 
     public async Task<List<string>> CheckAllUrlsAsync(string text)
@@ -62,15 +86,6 @@ public sealed partial class SafeBrowsingService : IDisposable
 
         return results;
     }
-
-    private static string FormatThreatType(string threatType) => threatType switch
-    {
-        "MALWARE" => "Malware",
-        "SOCIAL_ENGINEERING" => "Phishing/Social Engineering",
-        "UNWANTED_SOFTWARE" => "Unwanted Software",
-        "POTENTIALLY_HARMFUL_APPLICATION" => "Potentially Harmful App",
-        _ => threatType
-    };
 
     public void Dispose()
     {

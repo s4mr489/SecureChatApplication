@@ -72,6 +72,28 @@ public sealed class ChatMessage : INotifyPropertyChanged
     /// </summary>
     public byte[]? MediaBytes { get; init; }
 
+    private string? _urlSafetyNotice;
+
+    /// <summary>
+    /// URL safety check result displayed in the same message bubble.
+    /// </summary>
+    public string? UrlSafetyNotice
+    {
+        get => _urlSafetyNotice;
+        set
+        {
+            if (_urlSafetyNotice != value)
+            {
+                _urlSafetyNotice = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UrlSafetyNotice)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasUrlSafetyNotice)));
+            }
+        }
+    }
+
+    /// <summary>Whether a URL safety notice is available.</summary>
+    public bool HasUrlSafetyNotice => !string.IsNullOrEmpty(UrlSafetyNotice);
+
     /// <summary>Whether this is a media (image or file) message.</summary>
     public bool IsMedia => MessageType != 0;
 

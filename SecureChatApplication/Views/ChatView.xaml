@@ -22,6 +22,13 @@
                                Foreground="#FFFFFF" 
                                FontSize="14"
                                TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding UrlSafetyNotice}"
+                               Foreground="#A5F3FC"
+                               FontSize="11"
+                               FontStyle="Italic"
+                               TextWrapping="Wrap"
+                               Margin="0,4,0,0"
+                               Visibility="{Binding HasUrlSafetyNotice, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm}'}" 
                                Foreground="#D8B4FE" 
                                FontSize="10"
@@ -30,7 +37,7 @@
                 </StackPanel>
             </Border>
         </DataTemplate>
-        
+
         <DataTemplate x:Key="OtherMessageTemplate">
             <StackPanel Margin="8,4,80,4" HorizontalAlignment="Left" MaxWidth="400">
                 <TextBlock Text="{Binding SenderUsername}" 
@@ -40,37 +47,42 @@
                 <Border Background="#2D2D3D" CornerRadius="16,16,16,4" Padding="14,10">
                     <StackPanel>
                         <TextBlock Text="{Binding Content}" 
-                                   Foreground="#FFFFFF" 
-                                   FontSize="14"
-                                   TextWrapping="Wrap"/>
+                                    Foreground="#FFFFFF" 
+                                    FontSize="14"
+                                    TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding UrlSafetyNotice}"
+                                    Foreground="#A5F3FC"
+                                    FontSize="11"
+                                    FontStyle="Italic"
+                                    TextWrapping="Wrap"
+                                    Margin="0,4,0,0"
+                                    Visibility="{Binding HasUrlSafetyNotice, Converter={StaticResource BoolToVisibilityConverter}}"/>
                         <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm}'}" 
-                                   Foreground="#6B6B8A" 
-                                   FontSize="10"
-                                   HorizontalAlignment="Right"
-                                   Margin="0,4,0,0"/>
+                                    Foreground="#6B6B8A" 
+                                    FontSize="10"
+                                    HorizontalAlignment="Right"
+                                    Margin="0,4,0,0"/>
                     </StackPanel>
                 </Border>
             </StackPanel>
         </DataTemplate>
 
-        <!-- ── Own media bubble (image or file, right-aligned) ── -->
+        <!-- Own media bubble (image or file, right-aligned) -->
         <DataTemplate x:Key="OwnMediaTemplate">
             <Border Background="#7C3AED" CornerRadius="16,16,4,16"
                     Padding="14,10" Margin="80,4,8,4"
                     HorizontalAlignment="Right" MaxWidth="400">
                 <StackPanel>
-                    <!-- Inline image -->
                     <Image Source="{Binding MediaBytes, Converter={StaticResource BytesToImageConverter}}"
                            MaxWidth="300" MaxHeight="300" Stretch="Uniform"
                            Visibility="{Binding IsImage, Converter={StaticResource BoolToVisibilityConverter}}"
                            Margin="0,0,0,6"/>
-                    <!-- File attachment row -->
                     <StackPanel Orientation="Horizontal"
                                 Visibility="{Binding IsFile, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <TextBlock Text="📎 " Foreground="#FFFFFF" FontSize="16" VerticalAlignment="Center"/>
+                        <TextBlock Text="&#x1F4CE; " Foreground="#FFFFFF" FontSize="16" VerticalAlignment="Center"/>
                         <TextBlock Text="{Binding FileName}" Foreground="#FFFFFF"
                                    FontSize="13" TextWrapping="Wrap" VerticalAlignment="Center"/>
-                        <Button Content="💾" FontSize="13"
+                        <Button Content="&#x1F4BE;" FontSize="13"
                                 Background="Transparent" BorderThickness="0"
                                 Foreground="#D8B4FE" Cursor="Hand"
                                 ToolTip="Save file"
@@ -84,7 +96,7 @@
             </Border>
         </DataTemplate>
 
-        <!-- ── Other media bubble (image or file, left-aligned) ── -->
+        <!-- Other media bubble (image or file, left-aligned) -->
         <DataTemplate x:Key="OtherMediaTemplate">
             <StackPanel Margin="8,4,80,4" HorizontalAlignment="Left" MaxWidth="400">
                 <TextBlock Text="{Binding SenderUsername}"

@@ -395,7 +395,7 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
             _chatHistoryService.SaveMessage(CurrentUsername, _selectedUser.Username, chatMsg);
 
             // Check URLs in the message for safety
-            _ = CheckAndNotifyUrlSafetyAsync(plaintext, _selectedUser.Username);
+            _ = CheckAndNotifyUrlSafetyAsync(plaintext, chatMsg);
 
             MessageText = string.Empty;
             await _chatService.SendEncryptedMessageAsync(encryptedMessage);
@@ -406,38 +406,18 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private async Task CheckAndNotifyUrlSafetyAsync(string text, string partnerUsername)
+    private async Task CheckAndNotifyUrlSafetyAsync(string text, ChatMessage chatMessage)
     {
         try
         {
             var notices = await _safeBrowsingService.CheckAllUrlsAsync(text);
             if (notices.Count == 0) return;
 
+            var combined = string.Join(" | ", notices);
+
             await Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                if (!_messagesByUser.TryGetValue(partnerUsername, out var messages))
-                {
-                    messages = new ObservableCollection<ChatMessage>();
-                    _messagesByUser[partnerUsername] = messages;
-                }
-
-                foreach (var notice in notices)
-                {
-                    messages.Add(new ChatMessage
-                    {
-                        MessageId = Guid.NewGuid().ToString(),
-                        SenderUsername = "🔒 Safe Browsing",
-                        Content = notice,
-                        Timestamp = DateTime.UtcNow,
-                        IsOwnMessage = false,
-                        IsDelivered = true
-                    });
-                }
-
-                if (_selectedUser?.Username == partnerUsername)
-                {
-                    OnPropertyChanged(nameof(Messages));
-                }
+                chatMessage.UrlSafetyNotice = combined;
             });
         }
         catch (Exception ex)
@@ -581,7 +561,7 @@ public sealed class ChatViewModel : ViewModelBase, IDisposable
                 // Check URLs in received messages for safety
                 if (encryptedMessage.MessageType == 0)
                 {
-                    _ = CheckAndNotifyUrlSafetyAsync(content, senderUsername);
+                    _ = CheckAndNotifyUrlSafetyAsync(content, receivedMsg);
                 }
 
                 if (_selectedUser?.Username == senderUsername)
